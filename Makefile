@@ -16,24 +16,7 @@ LINKFLAGS=
 OCAMLBUILDBYTE=$(WITH_OCAMLBUILD:=.byte)
 OCAMLBUILDNATIVE=$(WITH_OCAMLBUILD:=.native)
 
-INCLUDES=-I utils -I parsing -I typing -I driver -I stdlib
-
-##OTHERS=stdlib/list.cmo stdlib/char.cmo stdlib/bytes.cmo stdlib/string.cmo stdlib/sys.cmo\
-##	stdlib/sort.cmo stdlib/marshal.cmo stdlib/obj.cmo stdlib/array.cmo\
-##	stdlib/int32.cmo stdlib/int64.cmo stdlib/nativeint.cmo\
-##	stdlib/lexing.cmo stdlib/parsing.cmo\
-##	stdlib/set.cmo stdlib/map.cmo stdlib/stack.cmo stdlib/queue.cmo\
-##	stdlib/camlinternalLazy.cmo stdlib/lazy.cmo stdlib/stream.cmo\
-##	stdlib/buffer.cmo stdlib/camlinternalFormat.cmo stdlib/printf.cmo\
-##	stdlib/arg.cmo stdlib/printexc.cmo stdlib/gc.cmo\
-##	stdlib/digest.cmo stdlib/random.cmo stdlib/hashtbl.cmo stdlib/weak.cmo\
-##	stdlib/format.cmo stdlib/uchar.cmo stdlib/scanf.cmo stdlib/callback.cmo\
-##	stdlib/camlinternalOO.cmo stdlib/oo.cmo stdlib/camlinternalMod.cmo\
-##	stdlib/genlex.cmo stdlib/ephemeron.cmo\
-##	stdlib/filename.cmo stdlib/complex.cmo\
-##	stdlib/arrayLabels.cmo stdlib/listLabels.cmo stdlib/bytesLabels.cmo\
-##	stdlib/stringLabels.cmo stdlib/moreLabels.cmo stdlib/stdLabels.cmo\
-##	stdlib/spacetime.cmo
+INCLUDES=-I utils -I parsing -I typing -I driver 
 
 UTILS=utils/config.cmo utils/misc.cmo \
   utils/identifiable.cmo utils/numbers.cmo utils/arg_helper.cmo \
@@ -73,13 +56,14 @@ COMP=driver/pparse.cmo driver/main_args.cmo \
 # Top-level
 ALLOBJS=$(UTILS) $(PARSING) $(TYPING) $(COMP)
 
-default: main.opt
+default: acidify.opt
+	cp acidify.opt ./examples/acidify
 
-main.byte: $(ALLOBJS)
-	$(CAMLC) $(LINKFLAGS) -custom -o main.byte str.cma unix.cma nums.cma $(ALLOBJS)
+acidify.byte: $(ALLOBJS)
+	$(CAMLC) $(LINKFLAGS) -custom -o acidify.byte str.cma unix.cma nums.cma $(ALLOBJS)
 
-main.opt: $(ALLOBJS:.cmo=.cmx)
-	$(CAMLOPT) $(LINKFLAGS) -o main.opt str.cmxa unix.cmxa nums.cmxa $(ALLOBJS:.cmo=.cmx)
+acidify.opt: $(ALLOBJS:.cmo=.cmx)
+	$(CAMLOPT) $(LINKFLAGS) -o acidify.opt str.cmxa unix.cmxa nums.cmxa $(ALLOBJS:.cmo=.cmx)
 
 reconfigure:
 	./configure $(CONFIGURE_ARGS)
@@ -181,6 +165,6 @@ beforedepend:: parsing/lexer.ml
 .ml.cmx:
 	$(CAMLOPT) $(COMPFLAGS) -c $<
 
-world: main.byte main.opt
+world: acidify.byte acidify.opt
 
 include .depend
