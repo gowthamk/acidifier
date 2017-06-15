@@ -16,7 +16,7 @@ LINKFLAGS=
 OCAMLBUILDBYTE=$(WITH_OCAMLBUILD:=.byte)
 OCAMLBUILDNATIVE=$(WITH_OCAMLBUILD:=.native)
 
-INCLUDES=-I utils -I parsing -I typing -I driver 
+INCLUDES=-I utils -I parsing -I typing -I vcgen -I driver 
 
 UTILS=utils/config.cmo utils/misc.cmo \
   utils/identifiable.cmo utils/numbers.cmo utils/arg_helper.cmo \
@@ -54,16 +54,20 @@ COMP=driver/pparse.cmo driver/main_args.cmo \
 	driver/compile.cmo driver/main.cmo 
 
 # Top-level
-ALLOBJS=$(UTILS) $(PARSING) $(TYPING) $(COMP)
+ALLOBJS=$(UTILS) $(PARSING) $(TYPING)
 
 default: acidify.opt
 	cp acidify.opt ./examples/acidify
 
+MYFILES=vcgen/utils.cmx vcgen/speclang.cmx vcgen/app.cmx vcgen/extract.cmi vcgen/extract.cmx
+
+MYCMX=vcgen/utils.cmx vcgen/speclang.cmx vcgen/app.cmx vcgen/extract.cmx
+
 acidify.byte: $(ALLOBJS)
 	$(CAMLC) $(LINKFLAGS) -custom -o acidify.byte str.cma unix.cma nums.cma $(ALLOBJS)
 
-acidify.opt: $(ALLOBJS:.cmo=.cmx)
-	$(CAMLOPT) $(LINKFLAGS) -o acidify.opt str.cmxa unix.cmxa nums.cmxa $(ALLOBJS:.cmo=.cmx)
+acidify.opt: $(ALLOBJS:.cmo=.cmx) $(MYFILES) $(COMP:.cmo=.cmx)
+	$(CAMLOPT) $(LINKFLAGS) -o acidify.opt str.cmxa unix.cmxa nums.cmxa $(ALLOBJS:.cmo=.cmx) $(MYCMX) $(COMP:.cmo=.cmx)
 
 reconfigure:
 	./configure $(CONFIGURE_ARGS)
@@ -83,6 +87,10 @@ clean: partialclean
 	(for d in utils parsing typing driver; \
 	  do rm -f $$d/*.cm[ioxt] $$d/*.cmti $$d/*.annot $$d/*.[so] $$d/*~; done);
 	rm -f *~
+
+localclean:
+	(for d in vcgen; \
+	  do rm -f $$d/*.cm[ioxt] $$d/*.cmti $$d/*.annot $$d/*.[so] $$d/*~; done);
 
 distclean:
 	$(MAKE) clean

@@ -66,6 +66,10 @@ let implementation ppf sourcefile outputprefix =
   let modulename = module_of_filename ppf sourcefile outputprefix in
   Env.set_unit_name modulename;
   let env = Compmisc.initial_env() in
+  let is_app_mod sourcefile = 
+    match Str.split (Str.regexp "_") (Filename.chop_extension sourcefile) with
+      | _::"app"::_ -> true
+      | _ -> false in
   try
     let (typedtree, coercion) =
       Pparse.parse_implementation ~tool_name ppf sourcefile
@@ -74,38 +78,14 @@ let implementation ppf sourcefile outputprefix =
       ++ Timings.(time (Typing sourcefile))
           (Typemod.type_implementation sourcefile outputprefix modulename env)
       ++ print_if ppf Clflags.dump_typedtree
-        Printtyped.implementation_with_coercion
-    in
+        Printtyped.implementation_with_coercion in
+    let app = if is_app_mod sourcefile 
+              then Some (Extract.doIt ppf typedtree) 
+              else None in
     if !Clflags.print_types then begin
       Warnings.check_fatal ();
       Stypes.dump (Some (outputprefix ^ ".annot"))
-    end else ()(*begin
-      let bytecode, required_globals =
-        (typedtree, coercion)
-        ++ Timings.(time (Transl sourcefile))
-            (Translmod.transl_implementation modulename)
-        ++ print_if ppf Clflags.dump_rawlambda Printlambda.lambda
-        ++ Timings.(accumulate_time (Generate sourcefile))
-            (fun lambda ->
-              Simplif.simplify_lambda lambda
-              ++ print_if ppf Clflags.dump_lambda Printlambda.lambda
-              ++ Bytegen.compile_implementation modulename
-              ++ print_if ppf Clflags.dump_instr Printinstr.instrlist)
-      in
-      let objfile = outputprefix ^ ".cmo" in
-      let oc = open_out_bin objfile in
-      try
-        bytecode
-        ++ Timings.(accumulate_time (Generate sourcefile))
-            (Emitcode.to_file oc modulename objfile);
-        Warnings.check_fatal ();
-        close_out oc;
-        Stypes.dump (Some (outputprefix ^ ".annot"))
-      with x ->
-        close_out oc;
-        remove_file objfile;
-        raise x
-    end*)
+    end else ()
   with x ->
     Stypes.dump (Some (outputprefix ^ ".annot"));
     raise x

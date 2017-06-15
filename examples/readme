@@ -1,1 +1,1 @@
-./acidify -c utils.ml bankaccount.ml
+./acidify -c utils.ml bankaccount_app.ml
