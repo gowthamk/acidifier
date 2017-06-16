@@ -1,24 +1,42 @@
+open Utils
 open Types
 open Typedtree
 
 module Type = 
 struct
-  type t = Any | Int | Bool | String | Other of Ident.t
-    | Arrow of t*t | List of t | Pair of t*t
-    | Option of t | Unit
+  (* Types of the spec language *)
+  type t = Any | Int | Bool | String | Unit 
+    | Id | Loc | Rec | St | Set | Table | Date
+    | Arrow of t*t | List of t | Tuple of t list
+    | Option of t
 
   let rec to_string = function Any -> "any"
-    | Int -> "int" | Bool -> "bool" 
-    | String -> "string" | Unit -> "unit"
-    | Other id -> Ident.name id
+    | Int -> "Int" | Bool -> "Bool" | Id -> "Id"
+    | String -> "String" | Unit -> "Unit" 
+    | Table -> "Table" | Loc -> "Loc" | Date -> "Date"
+    | Rec -> "Rec" | St -> "St" | Set -> "Set"
     | Arrow (t1,t2) -> (to_string t1)^" -> "^(to_string t2)
     | List t -> (to_string t)^" list"
-    | Pair (t1,t2) -> "("^(to_string t1)^","^(to_string t2)^")"
+    | Tuple ts -> "("^(String.concat "," @@ List.map to_string ts)^")"
     | Option t -> (to_string t)^" option"
 
-  let other s = Other (Ident.create s)
-  let id = other "Id"
-  let uuid = other "UUID"
+  let id = Id
+  let table = Table
+  let record = Rec
+  let loc = Loc
+  let st = St
+  let set = Set
+end
+
+module Cons = 
+struct
+  type t = T of {name: string; 
+                 recognizer: string; 
+                 args: (string * Type.t) list}
+  let nop = T {name = "NOP";
+               recognizer = "isNOP"; 
+               args = []}
+  let name (T {name}) = name
 end
 
 module Fun = 
@@ -40,6 +58,111 @@ struct
   let make ~name ~rec_flag ~args_t ~res_t ~body = 
     T {name=name; rec_flag=rec_flag; args_t=args_t; 
        res_t=res_t; body=body}
+end
+
+module Kind = 
+struct
+ type t = Uninterpreted 
+        | Variant of Cons.t list (* Cons.t includes a recognizer *)
+        | Enum of Ident.t list
+        | Extendible of Ident.t list ref
+        | Alias of Type.t
+
+  let to_string = function Uninterpreted -> "Uninterpreted type"
+    | Variant cons_list -> 
+        let cons_names = List.map 
+                           (fun (Cons.T {name}) -> name) cons_list in
+          "Variant ["^(String.concat "," cons_names)^"]"
+    | Enum ids -> 
+        let id_names = List.map
+                         (fun id -> Ident.name id) ids in
+          "Enum ["^(String.concat "," id_names)^"]"
+    | Extendible ids -> 
+        let id_names = List.map
+                         (fun id -> Ident.name id) !ids in
+          "Extendible ["^(String.concat "," id_names)^"]"
+    | Alias typ -> "Alias of "^(Type.to_string typ)
+end
+
+module L = 
+struct
+  (*
+   * Constants of the spec language
+   *)
+  let table = Ident.create "table"
+  let value = Ident.create "value"
+  let add = Ident.create "add"
+  let remove = Ident.create "remove"
+  let dom = Ident.create "dom"
+  (* Field Accessors. Eg: s_id, c_name etc *)
+  let (accessors: (string * Ident.t) list ref) = ref []
+  let set_accessors (acc_idents:Ident.t list) : unit = 
+    accessors := List.map (fun a -> (Ident.name a, a)) acc_idents
+  let get_accessor str = List.assoc str !accessors
+end
+
+module Expr = 
+struct
+  type t =
+    | Var of Ident.t
+    | App of Ident.t * t list
+    | ConstInt of int
+    | ConstBool of bool
+    | ConstString of string
+
+  let rec to_string x = match x with
+    | Var id -> Ident.name id
+    | App (id,svs) -> (Ident.name id)^"("
+        ^(String.concat "," @@ List.map to_string svs)^")"
+    | ConstInt i -> string_of_int i
+    | ConstBool b -> string_of_bool b
+    | ConstString s -> s
+end
+module Predicate = 
+struct
+  type t = 
+    | Eq of Expr.t * Expr.t
+    | GE of Expr.t * Expr.t
+    | LE of Expr.t * Expr.t
+    | Not of t
+    | And of t list
+    | Or of t list
+    | ITE of t * t * t
+    | If of t * t 
+    | Iff of t * t 
+    | Forall of Type.t list * (Ident.t list -> t)
+    | Exists of Type.t list * (Ident.t list -> t)
+
+  let rec to_string x =
+    let f = to_string in
+    let g x = "("^(f x)^")" in
+    let h = Expr.to_string in
+      match x with
+        | Eq (e1,e2) -> (h e1)^" = "^(h e2)
+        | GE (e1,e2) -> (h e1)^" ≥ "^(h e2)
+        | LE (e1,e2) -> (h e1)^" ≤ "^(h e2)
+        | Not sv -> "~("^(f sv)^")"
+        | And svs -> "("^(String.concat " && " @@ List.map f svs)^")"
+        | Or svs -> "("^(String.concat " || " @@ List.map f svs)^")"
+        | If (v1,v2) -> (to_string v1)^" => "^(to_string v2)
+        | Iff (v1,v2) -> (to_string v1)^" <=> "^(to_string v2)
+        | ITE (grd,sv1,sv2) -> (g grd)^"?"^(g sv1)^":"^(g sv2)
+        | Forall (tys,f) -> 
+            let fresh_bv = gen_name "bv" in
+            let bvtys = List.map 
+                          (fun ty -> (Ident.create @@ fresh_bv (),ty)) tys in
+            let bvty_to_string (bv,ty) = 
+                          (Ident.name bv)^":" ^(Type.to_string ty) in
+            "∀("^(String.concat "," @@ List.map bvty_to_string bvtys)^"). "
+              ^(to_string @@ f @@ List.map fst bvtys)
+        | Exists (tys,f) -> 
+            let fresh_bv = gen_name "bv" in
+            let bvtys = List.map 
+                          (fun ty -> (Ident.create @@ fresh_bv (),ty)) tys in
+            let bvty_to_string (bv,ty) = 
+                          (Ident.name bv)^":" ^(Type.to_string ty) in
+            "∃("^(String.concat "," @@ List.map bvty_to_string bvtys)^"). "
+              ^(to_string @@ f @@ List.map fst bvtys)
 end
 
 module Misc =

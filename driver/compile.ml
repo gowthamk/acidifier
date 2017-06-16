@@ -79,13 +79,22 @@ let implementation ppf sourcefile outputprefix =
           (Typemod.type_implementation sourcefile outputprefix modulename env)
       ++ print_if ppf Clflags.dump_typedtree
         Printtyped.implementation_with_coercion in
-    let app = if is_app_mod sourcefile 
+    let app = Extract.doIt ppf typedtree(*if is_app_mod sourcefile 
               then Some (Extract.doIt ppf typedtree) 
-              else None in
-    if !Clflags.print_types then begin
-      Warnings.check_fatal ();
-      Stypes.dump (Some (outputprefix ^ ".annot"))
-    end else ()
+              else None*) in
+    let module KE = Specelab.KE in 
+    let module TE = Specelab.TE in
+    let (ke,te) = Specelab.doIt app in
+    let _ = begin
+              Printf.printf "----- Kind Env ----\n";
+              KE.print ke;
+              Printf.printf "----- Type Env ----\n";
+              TE.print te;
+            end in
+      if !Clflags.print_types then begin
+        Warnings.check_fatal ();
+        Stypes.dump (Some (outputprefix ^ ".annot"))
+      end else ()
   with x ->
     Stypes.dump (Some (outputprefix ^ ".annot"));
     raise x

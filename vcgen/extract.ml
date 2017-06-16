@@ -25,21 +25,21 @@ let extract_ttype_names (str_items) : string list =
 let extract_table_schemas ttype_names str_items 
     : Tableschema.t list = 
   let open Asttypes in
-  let rec doIt_core_type_desc (ctyp_desc) : Coltype.t = 
+  let rec doIt_core_type_desc (ctyp_desc) : Type.t = 
     match ctyp_desc with
       | Ttyp_constr (path,longident,_) -> 
           let path_str = Printtyp.string_of_path path in
             begin
               match path_str with 
-                | "string" -> Coltype.String | "int" -> Coltype.Int
-                | "id" -> Coltype.Id | "Unix.tm" -> Coltype.Date
-                | "bool" -> Coltype.Bool
+                | "string" -> Type.String | "int" -> Type.Int
+                | "id" -> Type.Id | "Unix.tm" -> Type.Date
+                | "bool" -> Type.Bool
                 | _ -> failwith "doIt_core_type_desc: Unimpl."
             end
       | Ttyp_poly (_,core_t) -> doIt_core_type_desc core_t.ctyp_desc
       | _ -> failwith "doIt_core_type_desc: Unimpl." in
   let doIt_label_dec ({ld_name; ld_type = {ctyp_desc}}) 
-        : (string*Coltype.t) = 
+        : (string*Type.t) = 
     let col_name = ld_name.txt in
     (* let _ = Printf.printf "arg_id: %s\n" @@ Ident.name arg_id in *)
     let col_t = doIt_core_type_desc ctyp_desc in

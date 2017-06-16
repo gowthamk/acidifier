@@ -59,9 +59,12 @@ ALLOBJS=$(UTILS) $(PARSING) $(TYPING)
 default: acidify.opt
 	cp acidify.opt ./examples/acidify
 
-MYFILES=vcgen/utils.cmx vcgen/speclang.cmx vcgen/app.cmx vcgen/extract.cmi vcgen/extract.cmx
+MYFILES=vcgen/utils.cmx vcgen/light_env.cmi vcgen/light_env.cmx \
+				vcgen/speclang.cmx vcgen/app.cmx vcgen/extract.cmi vcgen/extract.cmx \
+				vcgen/specelab.cmi vcgen/specelab.cmx
 
-MYCMX=vcgen/utils.cmx vcgen/speclang.cmx vcgen/app.cmx vcgen/extract.cmx
+MYCMX=vcgen/utils.cmx vcgen/light_env.cmx vcgen/speclang.cmx vcgen/app.cmx \
+			vcgen/extract.cmx vcgen/specelab.cmx
 
 acidify.byte: $(ALLOBJS)
 	$(CAMLC) $(LINKFLAGS) -custom -o acidify.byte str.cma unix.cma nums.cma $(ALLOBJS)
