@@ -61,10 +61,11 @@ default: acidify.opt
 
 MYFILES=vcgen/utils.cmx vcgen/light_env.cmi vcgen/light_env.cmx \
 				vcgen/speclang.cmx vcgen/app.cmx vcgen/extract.cmi vcgen/extract.cmx \
-				vcgen/specelab.cmi vcgen/specelab.cmx
+				vcgen/specelab.cmi vcgen/specelab.cmx vcgen/spec.cmi \
+				examples/bankaccount/spec.cmx
 
 MYCMX=vcgen/utils.cmx vcgen/light_env.cmx vcgen/speclang.cmx vcgen/app.cmx \
-			vcgen/extract.cmx vcgen/specelab.cmx
+			vcgen/extract.cmx vcgen/specelab.cmx examples/bankaccount/spec.cmx
 
 acidify.byte: $(ALLOBJS)
 	$(CAMLC) $(LINKFLAGS) -custom -o acidify.byte str.cma unix.cma nums.cma $(ALLOBJS)

@@ -94,6 +94,7 @@ struct
   let add = Ident.create "add"
   let remove = Ident.create "remove"
   let dom = Ident.create "dom"
+  let inn = Ident.create "in"
   (* Field Accessors. Eg: s_id, c_name etc *)
   let (accessors: (string * Ident.t) list ref) = ref []
   let set_accessors (acc_idents:Ident.t list) : unit = 
@@ -121,6 +122,7 @@ end
 module Predicate = 
 struct
   type t = 
+    | BoolExpr of Expr.t
     | Eq of Expr.t * Expr.t
     | GE of Expr.t * Expr.t
     | LE of Expr.t * Expr.t
@@ -138,6 +140,7 @@ struct
     let g x = "("^(f x)^")" in
     let h = Expr.to_string in
       match x with
+        | BoolExpr e -> Expr.to_string e
         | Eq (e1,e2) -> (h e1)^" = "^(h e2)
         | GE (e1,e2) -> (h e1)^" ≥ "^(h e2)
         | LE (e1,e2) -> (h e1)^" ≤ "^(h e2)
@@ -163,6 +166,11 @@ struct
                           (Ident.name bv)^":" ^(Type.to_string ty) in
             "∃("^(String.concat "," @@ List.map bvty_to_string bvtys)^"). "
               ^(to_string @@ f @@ List.map fst bvtys)
+end
+
+module Isolation = 
+struct
+  type t = RC | RR | SI | SER 
 end
 
 module Misc =

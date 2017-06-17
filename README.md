@@ -1,4 +1,4 @@
-## Acidifer ##
+## Acidifier ##
 
 Created from OCaml 4.03 compiler frontend
 
