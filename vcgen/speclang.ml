@@ -95,11 +95,19 @@ struct
   let remove = Ident.create "remove"
   let dom = Ident.create "dom"
   let inn = Ident.create "in"
+  let empty = Ident.create "empty"
   (* Field Accessors. Eg: s_id, c_name etc *)
   let (accessors: (string * Ident.t) list ref) = ref []
   let set_accessors (acc_idents:Ident.t list) : unit = 
     accessors := List.map (fun a -> (Ident.name a, a)) acc_idents
   let get_accessor str = List.assoc str !accessors
+  (* Invariants and Relations *)
+  let _II = Ident.create "II"
+  let _IIr = Ident.create "IIr"
+  let _IIc = Ident.create "IIc"
+  let _R = Ident.create "R"
+  let _Rl = Ident.create "Rl"
+  let _Rc = Ident.create "Rc"
 end
 
 module Expr = 
@@ -145,7 +153,7 @@ struct
         | GE (e1,e2) -> (h e1)^" ≥ "^(h e2)
         | LE (e1,e2) -> (h e1)^" ≤ "^(h e2)
         | Not sv -> "~("^(f sv)^")"
-        | And svs -> "("^(String.concat " && " @@ List.map f svs)^")"
+        | And svs -> "("^(String.concat " &&\n\t" @@ List.map f svs)^")"
         | Or svs -> "("^(String.concat " || " @@ List.map f svs)^")"
         | If (v1,v2) -> (to_string v1)^" => "^(to_string v2)
         | Iff (v1,v2) -> (to_string v1)^" <=> "^(to_string v2)
@@ -166,11 +174,63 @@ struct
                           (Ident.name bv)^":" ^(Type.to_string ty) in
             "∃("^(String.concat "," @@ List.map bvty_to_string bvtys)^"). "
               ^(to_string @@ f @@ List.map fst bvtys)
+
+  let conj p1 p2 = match (p1,p2) with
+    | (And xs, And ys) -> And (xs@ys)
+    | (And xs,_) -> And (xs@[p2])
+    | (_,And ys) -> And (p1::ys)
+    | _ -> And [p1;p2]
+  let truee = BoolExpr (Expr.ConstBool true)
+  let falsee = BoolExpr (Expr.ConstBool false)
+  let (@:) x y = BoolExpr (Expr.App (L.inn,[x;y]))
+  let (?&&) xs = And xs
+  let (?||) xs = Or xs
+  let (@&&) x y = conj x y
+  let (@==) x y = Eq (x,y)
+  let (@!=) x y = Not (Eq (x,y))
+  let (@>=) x y = GE (x,y)
+  let (@=>) x y = If (x,y)
+  let (@<=>) x y = Iff (x,y)
+  let (??) x = Expr.Var x
+  let dom x = Expr.App (L.dom,[x])
+  let add (s2,s1,x) = BoolExpr (Expr.App (L.add,[s2; s1; x]))
+  let remove (s2,s1,x) = BoolExpr (Expr.App (L.remove,[s2; s1; x]))
+  let value (st,l) = Expr.App (L.value,[st;l])
+  let b_app (bf,args) = BoolExpr(Expr.App (bf,args))
+  let table (x) = Expr.App (L.table, [x])
 end
 
 module Isolation = 
 struct
   type t = RC | RR | SI | SER 
+
+  open Predicate
+
+  let no_W_W_conflict (stl,stg,stg') = 
+      Forall ([Type.Loc], function [l] -> 
+                (??l @: dom(??stl)) @=> (value(??stg,??l) @== value(??stg',??l)))
+  (*
+   * Store-specific basic isolation common to all levels.
+   *)
+  let _II  = no_W_W_conflict
+
+  let specification_of = 
+    let ret (_IIr,_IIc) = 
+          ?&& [Forall ([Type.St; Type.St; Type.St], 
+                function [stl;stg;stg'] -> b_app(L._IIr,[??stl;??stg;??stg']) 
+                                           @<=> ?&& [_II(stl,stg,stg'); 
+                                                     _IIr(stl,stg,stg')]); 
+               Forall ([Type.St; Type.St; Type.St], 
+                function [stl;stg;stg'] -> b_app(L._IIc,[??stl;??stg;??stg']) 
+                                           @<=> ?&& [_II(stl,stg,stg'); 
+                                                     _IIc(stl,stg,stg')])] in
+    let no_iso = fun _ -> truee in
+    let full_iso = fun (stl,stg,stg') -> ??stg' @== ??stg in
+      function
+      | RC -> ret (no_iso,no_iso)
+      | RR -> ret (full_iso, no_iso) 
+      | SI -> ret (full_iso, no_W_W_conflict)
+      | SER -> ret (full_iso,full_iso)
 end
 
 module Misc =

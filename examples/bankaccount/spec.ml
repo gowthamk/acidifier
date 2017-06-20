@@ -12,24 +12,10 @@ type t = T of {txns: txn list;
                invariant: Ident.t;
                asserts: P.t list}
 
-let (@:) x y = BoolExpr (App (L.inn,[x;y]))
-let (?&&) xs = And xs
-let (@==) x y = Eq (x,y)
-let (@!=) x y = Not (Eq (x,y))
-let (@>=) x y = GE (x,y)
-let (@=>) x y = If (x,y)
-let (@<=>) x y = Iff (x,y)
-let (??) x = Var x
-let dom x = App (L.dom,[x])
-let add (s2,s1,x) = BoolExpr (App (L.add,[s2; s1; x]))
-let remove (s2,s1,x) = BoolExpr (App (L.remove,[s2; s1; x]))
-let value (st,l) = App (L.value,[st;l])
 let id (x) = App (L.get_accessor "id", [x])
 let cbal (x) = App (L.get_accessor "cbal", [x])
 let sbal (x) = App (L.get_accessor "sbal", [x])
-let table (x) = App (L.table, [x])
 let user_account = App (Ident.create "User_account", [])
-let b_app (bf,args) = BoolExpr(App (bf,args))
 
 let withdraw_G (st,st') = 
   Exists ([Type.Loc], 
@@ -89,7 +75,7 @@ let spec () =
                            guarantee=_G_d; 
                            iso=Isolation.RC} in
   let save_spec = Txn {name="save_txn"; 
-                            guarantee=_G_d; 
+                            guarantee=_G_s; 
                             iso=Isolation.RR} in
   let define_G _G g = Forall ([Type.St; Type.St], 
                               function [st; st'] -> 

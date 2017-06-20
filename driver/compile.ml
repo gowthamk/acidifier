@@ -84,13 +84,17 @@ let implementation ppf sourcefile outputprefix =
               else None*) in
     let module KE = Specelab.KE in 
     let module TE = Specelab.TE in
-    let (ke,te) = Specelab.doIt app in
-    let _ = begin
+    let module P = Speclang.Predicate in
+    let (ke,te,phi) = Specelab.doIt app in
+    (*let _ = begin
               Printf.printf "----- Kind Env ----\n";
               KE.print ke;
               Printf.printf "----- Type Env ----\n";
               TE.print te;
-            end in
+              Printf.printf "----- Context ----\n";
+              Printf.printf "%s\n" @@ P.to_string phi;
+            end in*)
+    let _ = Verify.doIt (ke,te,phi) app (Spec.spec()) in
       if !Clflags.print_types then begin
         Warnings.check_fatal ();
         Stypes.dump (Some (outputprefix ^ ".annot"))

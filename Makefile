@@ -16,7 +16,7 @@ LINKFLAGS=
 OCAMLBUILDBYTE=$(WITH_OCAMLBUILD:=.byte)
 OCAMLBUILDNATIVE=$(WITH_OCAMLBUILD:=.native)
 
-INCLUDES=-I utils -I parsing -I typing -I vcgen -I driver 
+INCLUDES=-I utils -I parsing -I typing -I examples/bankaccount -I vcgen -I driver 
 
 UTILS=utils/config.cmo utils/misc.cmo \
   utils/identifiable.cmo utils/numbers.cmo utils/arg_helper.cmo \
@@ -60,12 +60,14 @@ default: acidify.opt
 	cp acidify.opt ./examples/acidify
 
 MYFILES=vcgen/utils.cmx vcgen/light_env.cmi vcgen/light_env.cmx \
-				vcgen/speclang.cmx vcgen/app.cmx vcgen/extract.cmi vcgen/extract.cmx \
-				vcgen/specelab.cmi vcgen/specelab.cmx vcgen/spec.cmi \
-				examples/bankaccount/spec.cmx
+				vcgen/speclang.cmx vcgen/spec.cmi examples/bankaccount/spec.cmx \
+				vcgen/app.cmx vcgen/extract.cmi vcgen/extract.cmx \
+				vcgen/specelab.cmi vcgen/specelab.cmx vcgen/verify.cmi vcgen/verify.cmx \
+				
 
-MYCMX=vcgen/utils.cmx vcgen/light_env.cmx vcgen/speclang.cmx vcgen/app.cmx \
-			vcgen/extract.cmx vcgen/specelab.cmx examples/bankaccount/spec.cmx
+MYCMX=vcgen/utils.cmx vcgen/light_env.cmx vcgen/speclang.cmx \
+			examples/bankaccount/spec.cmx vcgen/app.cmx vcgen/extract.cmx \
+			vcgen/specelab.cmx vcgen/verify.cmx
 
 acidify.byte: $(ALLOBJS)
 	$(CAMLC) $(LINKFLAGS) -custom -o acidify.byte str.cma unix.cma nums.cma $(ALLOBJS)
@@ -93,7 +95,7 @@ clean: partialclean
 	rm -f *~
 
 localclean:
-	(for d in vcgen; \
+	(for d in vcgen examples/bankaccount; \
 	  do rm -f $$d/*.cm[ioxt] $$d/*.cmti $$d/*.annot $$d/*.[so] $$d/*~; done);
 
 distclean:

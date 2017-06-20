@@ -1,0 +1,1 @@
+./acidify.opt -w -20 -c examples/bankaccount/app.ml
