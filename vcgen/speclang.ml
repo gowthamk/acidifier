@@ -87,6 +87,19 @@ end
 module L = 
 struct
   (*
+   * General constants
+   *)
+  let plus = Ident.create "+"
+  let minus = Ident.create "-"
+  let ge = Ident.create ">="
+  let gt = Ident.create ">"
+  let le = Ident.create "<="
+  let lt = Ident.create "<"
+  let eq = Ident.create "="
+  let nott = Ident.create "~"
+  let andd = Ident.create "&&"
+  let orr = Ident.create "||"
+  (*
    * Constants of the spec language
    *)
   let table = Ident.create "table"
@@ -96,6 +109,7 @@ struct
   let dom = Ident.create "dom"
   let inn = Ident.create "in"
   let empty = Ident.create "empty"
+  let flush = Ident.create "flush"
   (* Field Accessors. Eg: s_id, c_name etc *)
   let (accessors: (string * Ident.t) list ref) = ref []
   let set_accessors (acc_idents:Ident.t list) : unit = 
@@ -180,6 +194,11 @@ struct
     | (And xs,_) -> And (xs@[p2])
     | (_,And ys) -> And (p1::ys)
     | _ -> And [p1;p2]
+  let disj p1 p2 = match (p1,p2) with
+    | (Or xs, Or ys) -> Or (xs@ys)
+    | (Or xs,_) -> Or (xs@[p2])
+    | (_,Or ys) -> Or (p1::ys)
+    | _ -> Or [p1;p2]
   let truee = BoolExpr (Expr.ConstBool true)
   let falsee = BoolExpr (Expr.ConstBool false)
   let (@:) x y = BoolExpr (Expr.App (L.inn,[x;y]))
@@ -196,8 +215,25 @@ struct
   let add (s2,s1,x) = BoolExpr (Expr.App (L.add,[s2; s1; x]))
   let remove (s2,s1,x) = BoolExpr (Expr.App (L.remove,[s2; s1; x]))
   let value (st,l) = Expr.App (L.value,[st;l])
+  let flush (stl,stg) = Expr.App (L.flush, [stl;stg])
+  let (@>>) x y = flush (x,y)
   let b_app (bf,args) = BoolExpr(Expr.App (bf,args))
   let table (x) = Expr.App (L.table, [x])
+
+  let _Forall_St2 f = Forall ([Type.St; Type.St], 
+                              fun l -> match l with 
+                                | [stl;stg] -> f(stl,stg)
+                                | _ -> failwith "_Forall_St2: Unexpected")
+  let _Forall_St3 f = Forall ([Type.St; Type.St; Type.St], 
+                              fun l -> match l with 
+                                | [stl;stg;stg'] -> f(stl,stg,stg')
+                                | _ -> failwith "_Forall_St3: Unexpected")
+  let _Forall_L1 f = Forall ([Type.Loc], 
+                              fun x -> match x with | [l] -> f l
+                                | _ -> failwith "_Forall_L1: Unexpected")
+  let _Exists_St1 f = Exists ([Type.St], 
+                              fun l -> match l with | [st] -> f st
+                                | _ -> failwith "_Exists_St1: Unexpected")
 end
 
 module Isolation = 

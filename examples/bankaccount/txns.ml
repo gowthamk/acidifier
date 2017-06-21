@@ -37,7 +37,7 @@ end
 type id
 
 
-type user_account = {id: id; name: string; 
+type user_account = {mutable id: id; mutable name: string; 
                      mutable cbal: int; mutable sbal: int}
 (*
  * Withdraw transaction
@@ -50,7 +50,13 @@ let withdraw_txn u_id amt =
     if user.cbal >= amt 
     then
       SQL.update (* table *)User_account
-        (* modify record u as *)(fun u -> u.cbal <- user.cbal - amt)
+        (* modify record u as *)(fun u -> 
+                                   begin
+                                     u.id <-u.id;
+        (* invariance needs to *)    u.cbal <- user.cbal - amt;
+        (*be specified explicitly *) u.sbal <- u.sbal;
+                                     u.name <- u.name;
+                                   end)
         (* where u satisfies *)(fun u -> u.id = u_id)
     else
       ()
@@ -63,7 +69,12 @@ let deposit_txn u_id amt =
   let user = SQL.select1 [User_account] 
                (fun u -> u.id = u_id) in
       SQL.update User_account
-        (fun u -> u.cbal <- user.cbal + amt)
+        (fun u -> begin
+                    u.id <-u.id;
+                    u.cbal <- user.cbal + amt;
+                    u.sbal <- u.sbal;
+                    u.name <- u.name;
+                  end)
         (fun u -> u.id = u_id)
 (*
  * Save transaction
@@ -77,11 +88,12 @@ let save_txn u_id amt =
     if user.cbal >= amt 
     then
       SQL.update User_account
-        (fun u -> 
-           begin
-             u.cbal <- user.cbal - amt;
-             u.sbal <- user.sbal + amt;
-           end)
+        (fun u -> begin
+                    u.id <-u.id;
+                    u.name <- u.name;
+                    u.cbal <- user.cbal - amt;
+                    u.sbal <- user.sbal + amt;
+                  end)
         (fun u -> u.id = u_id)
     else
       ()

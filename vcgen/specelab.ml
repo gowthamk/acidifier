@@ -31,7 +31,21 @@ let bootstrap_pe (Spec.T spec) =
       function [stl;stg;stg'] -> b_app(L._Rc,[??stl;??stg;??stg']) @<=> 
         (?&& [b_app(L._R,[??stg;??stg']); 
               b_app(L._IIc,[??stl;??stg;??stg'])])) in
-    ?&& ([_R_def; _Rl_def; _Rc_def] @ spec.asserts)
+  (* flush_def *)
+  let flush_asn1 = _Forall_St2 @@ fun (stl,stg) ->
+    _Forall_L1 @@ fun l -> 
+      (??l @: dom(??stl)) @<=> ?|| [??l @: dom(??stl); 
+                                    ??l @: dom(??stg)] in
+  let flush_asn2 = _Forall_St2 @@ fun (stl,stg) ->
+    _Forall_L1 @@ fun l -> 
+      let l_in_dom_stl = ??l @: dom(??stl) in
+      let l_in_dom_stg = ??l @: dom(??stg) in
+        ITE (l_in_dom_stl, 
+             value(flush(??stl,??stg),??l) @== value(??stl,??l),
+             l_in_dom_stg @=>
+                 (value(flush(??stl,??stg),??l) @== value(??stg,??l))) in
+    ?&& ([_R_def; _Rl_def; _Rc_def; flush_asn1; flush_asn2] 
+            @ spec.asserts)
 
 let bootstrap (App.T {schemas; txns}) = 
   (* 1. Id typedef to KE *)
@@ -69,11 +83,15 @@ let bootstrap (App.T {schemas; txns}) =
   let add_table te = 
     let typ = Type.Arrow (Type.record,Type.table) in
       TE.add (L.table) typ te in
-  (* 12. TE[dom :-> Type.St -> Type.Set]*)
+  (* 13. TE[dom :-> Type.St -> Type.Set]*)
   let add_dom te = 
     let typ = Type.Arrow (Type.St, Type.Set) in
       TE.add (L.dom) typ te in
-  (* 12. Record field accessors to TE *)
+  (* 14. TE[flush :-> Type.St*Type.St ]*)
+  let add_flush te = 
+    let typ = Type.Arrow (Type.Tuple [Type.St; Type.St], Type.St) in
+      TE.add (L.flush) typ te in
+  (* 15. Record field accessors to TE *)
   (* eg: TE[s_id :-> Type.record -> Type.Id],
    *     TE[c_name :-> Type.record -> Type.String]*)
   let cols = List.concat @@ List.map Tableschema.cols schemas in
@@ -90,7 +108,7 @@ let bootstrap (App.T {schemas; txns}) =
   let _Gs = List.map (fun (Spec.Txn tspec) -> 
                         tspec.guarantee) spec.txns in
   let _I = spec.invariant in
-  (* 13. TE[_IIr/IIc/Rl/Rc :-> Type.St*Type.St*Type.St -> Type.Bool] *)
+  (* 16. TE[_IIr/IIc/Rl/Rc :-> Type.St*Type.St*Type.St -> Type.Bool] *)
   (*     TE[G :-> (St*St) -> Bool]; TE[I :-> St -> Bool]*)
   let add_Rs_Gs_IIs_and_I te = 
     let ty1  = Type.Arrow (Type.St, Type.Bool) in
@@ -107,7 +125,7 @@ let bootstrap (App.T {schemas; txns}) =
   (* bootstrap TE *)
   let te = List.fold_left (fun te f -> f te) TE.empty
       [add_value; add_remove; add_add; add_empty; add_table; add_dom; 
-       add_field_accessors; add_Rs_Gs_IIs_and_I] in
+       add_flush; add_field_accessors; add_Rs_Gs_IIs_and_I] in
   (* bootstrap Phi *)
   let phi = bootstrap_pe (Spec.T spec) in
     (ke,te,phi)
