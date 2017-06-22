@@ -112,6 +112,16 @@ let forall sorts f =
   let body = f vars in
     mk_forall !ctx sorts names body None [] [] None None
 
+let exists sorts f = 
+  let n = List.length sorts in
+  let names = List.tabulate n 
+                (fun i -> sym @@ "a"^(string_of_int i)) in
+  let vars = List.tabulate n 
+               (fun i -> mk_bound !ctx (n-i-1) 
+                           (List.nth sorts i)) in
+  let body = f vars in
+    mk_exists !ctx sorts names body None [] [] None None
+
 let declare_enum_type (ty:Type.t) (consts: Ident.t list) =
   let mk_cstr e = 
     let name = Ident.name e in 
@@ -161,7 +171,7 @@ let declare_types (ke) =
   begin
     Hashtbl.add tmap Type.Int (mk_int_sort ());
     Hashtbl.add tmap Type.Bool (mk_bool_sort ());
-    Hashtbl.add tmap Type.String (mk_uninterpreted_s "Stringe");
+    Hashtbl.add tmap Type.String (mk_uninterpreted_s "Str");
     KE.iter (fun tyid kind -> 
                let tyname () = Type._of @@ Ident.name tyid in
                  match kind with
@@ -171,17 +181,18 @@ let declare_types (ke) =
                        declare_enum_type (tyname ()) consts
                    | Kind.Extendible consts ->
                        declare_extendible_type (tyname ()) !consts
+                   | Kind.Uninterpreted ->
+                       Hashtbl.add tmap (tyname ()) 
+                         (mk_uninterpreted_s @@ Ident.name tyid);
                    | _ -> ()) ke;
   end
 
 let declare_vars te = 
-  let rec uncurry_arrow = function 
-      Type.Arrow (t1, (Type.Arrow (_,_) as t2)) ->
-        (fun (x,y) -> (t1::x,y)) (uncurry_arrow t2)
-    | Type.Arrow (t1,t2) -> ([t1],t2)
-    | _ -> failwith "uncurry_arrow called on a non-arrow type" in
   let declare_fun name typ = 
-    let (arg_typs,res_typ) = uncurry_arrow typ in
+    let (arg_typs,res_typ) = match typ with
+      | Type.Arrow(Type.Tuple t1s,t2) -> (t1s,t2)
+      | Type.Arrow (t1,t2) -> ([t1],t2)
+      | _ -> failwith "Z3E.declare_vars: Impossible" in
     let (arg_sorts,res_sort) = (List.map sort_of_typ arg_typs, 
                                 sort_of_typ res_typ) in
     let func_decl = mk_func_decl_s name arg_sorts res_sort in
@@ -245,7 +256,17 @@ let rec doIt_pred p =
                let _ = List.iter 
                          (fun bv -> Hashtbl.remove cmap (Ident.name bv)) bvs in
                  p)
-      | P.Exists (tys,f) -> failwith "VCE.doIt_pred.Exists: Unimpl."
+      | P.Exists (tys,f) -> expr_of_quantifier @@
+          exists (List.map sort_of_typ tys)
+            (fun es -> 
+               let bvs = List.map (fun e -> fresh_bv ()) es in
+               let _ = List.iter2
+                         (fun bv e -> Hashtbl.add cmap (Ident.name bv) e) 
+                         bvs es in
+               let p = doIt_pred @@ f bvs in
+               let _ = List.iter 
+                         (fun bv -> Hashtbl.remove cmap (Ident.name bv)) bvs in
+                 p)
 
 let declare_pred name p =
   let s_pred = mk_const_s name (sort_of_typ Type.Bool) in
@@ -269,18 +290,17 @@ let assert_neg_const name =
   _assert (mk_not s_pred)
 
 let setup (ke,te,phi) =
-  let open Verify in 
-    begin
-      declare_types ke;
-      declare_vars te;
-      assert_prog phi;
-      Printf.printf "*****  CONTEXT ******\n";
-      print_string @@ Solver.to_string !solver;
-      print_string "(check-sat)\n";
-      print_string "(get-model)\n";
-      Printf.printf "\n*********************\n";
-      flush_all ();
-    end
+  begin
+    declare_types ke;
+    declare_vars te;
+    assert_prog phi;
+    Printf.printf "*****  CONTEXT ******\n";
+    print_string @@ Solver.to_string !solver;
+    print_string "(check-sat)\n";
+    print_string "(get-model)\n";
+    Printf.printf "\n*********************\n";
+    flush_all ();
+  end
 
 let doIt (ke,te,phi) vcs = 
   if not (Log.open_ "z3.log") then

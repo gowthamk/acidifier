@@ -15,7 +15,8 @@ type t = T of {txns: txn list;
 let id (x) = App (L.get_accessor "id", [x])
 let cbal (x) = App (L.get_accessor "cbal", [x])
 let sbal (x) = App (L.get_accessor "sbal", [x])
-let user_account = App (Ident.create "User_account", [])
+(* let user_account = App (Ident.create "User_account", [])*)
+let user_account = ??(Ident.create "user_account")
 
 let withdraw_G (st,st') = 
   Exists ([Type.Loc], 

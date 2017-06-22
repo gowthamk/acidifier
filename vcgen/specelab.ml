@@ -83,10 +83,14 @@ let bootstrap (App.T {schemas; txns}) =
   let add_table te = 
     let typ = Type.Arrow (Type.record,Type.table) in
       TE.add (L.table) typ te in
-  (* 13. TE[dom :-> Type.St -> Type.Set]*)
+  (* 13. TE[dom :-> Type.St -> Type.Set] *)
   let add_dom te = 
     let typ = Type.Arrow (Type.St, Type.Set) in
       TE.add (L.dom) typ te in
+  (* 14. TE[in :-> Type.Loc*Type.Set -> Type.Bool] *)
+  let add_in te = 
+    let typ = Type.Arrow (Type.Tuple [Type.Loc; Type.Set], Type.Bool) in
+      TE.add (L.inn) typ te in
   (* 14. TE[flush :-> Type.St*Type.St ]*)
   let add_flush te = 
     let typ = Type.Arrow (Type.Tuple [Type.St; Type.St], Type.St) in
@@ -125,7 +129,7 @@ let bootstrap (App.T {schemas; txns}) =
   (* bootstrap TE *)
   let te = List.fold_left (fun te f -> f te) TE.empty
       [add_value; add_remove; add_add; add_empty; add_table; add_dom; 
-       add_flush; add_field_accessors; add_Rs_Gs_IIs_and_I] in
+       add_in; add_flush; add_field_accessors; add_Rs_Gs_IIs_and_I] in
   (* bootstrap Phi *)
   let phi = bootstrap_pe (Spec.T spec) in
     (ke,te,phi)
