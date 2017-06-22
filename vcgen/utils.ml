@@ -6,6 +6,7 @@ sig
   val tabulate : int -> (int -> 'a) -> 'a list 
   val last : 'a list -> 'a
   val take : int -> 'a list -> 'a list
+  val split3: ('a*'b*'c) list -> 'a list * 'b list * 'c list
 end =
 struct
   include List
@@ -31,6 +32,11 @@ struct
     | 0 -> []
     | _ -> (hd l)::(take (n-1) (tl l))
 
+  let rec split3 l = match l with
+    | [] -> ([],[],[])
+    | (x,y,z)::l' -> let (xs,ys,zs) = split3 l' in
+                        (x::xs, y::ys, z::zs)
+
 end
 
 module Str =
@@ -46,7 +52,9 @@ let printf = Printf.printf
 
 let gen_name name_base = 
   let count = ref 0 in
-    fun () -> 
+    ((fun () -> (* fresh_name *)
       let x = name_base^(string_of_int !count) in
-        (count := !count + 1; x)
+        (count := !count + 1; x)), 
+     (fun () -> (* reset *)
+       count := 0))
 

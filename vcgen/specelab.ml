@@ -34,8 +34,9 @@ let bootstrap_pe (Spec.T spec) =
   (* flush_def *)
   let flush_asn1 = _Forall_St2 @@ fun (stl,stg) ->
     _Forall_L1 @@ fun l -> 
-      (??l @: dom(??stl)) @<=> ?|| [??l @: dom(??stl); 
-                                    ??l @: dom(??stg)] in
+      (??l @: dom(flush(??stl,??stg))) @<=> ?|| [??l @: dom(??stl); 
+                                                 ??l @: dom(??stg)] in
+  let _ = Printf.printf ">> Flush asn1: %s\n" @@ P.to_string flush_asn1 in
   let flush_asn2 = _Forall_St2 @@ fun (stl,stg) ->
     _Forall_L1 @@ fun l -> 
       let l_in_dom_stl = ??l @: dom(??stl) in
@@ -44,6 +45,7 @@ let bootstrap_pe (Spec.T spec) =
              value(flush(??stl,??stg),??l) @== value(??stl,??l),
              l_in_dom_stg @=>
                  (value(flush(??stl,??stg),??l) @== value(??stg,??l))) in
+  let _ = Printf.printf ">> Flush asn2: %s\n" @@ P.to_string flush_asn2 in
     ?&& ([_R_def; _Rl_def; _Rc_def; flush_asn1; flush_asn2] 
             @ spec.asserts)
 

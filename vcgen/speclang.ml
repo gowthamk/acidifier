@@ -162,6 +162,8 @@ struct
     | Forall of Type.t list * (Ident.t list -> t)
     | Exists of Type.t list * (Ident.t list -> t)
 
+  let (fresh_bv,_) = gen_name "bv"
+
   let rec to_string x =
     let f = to_string in
     let g x = "("^(f x)^")" in
@@ -178,7 +180,6 @@ struct
         | Iff (v1,v2) -> (to_string v1)^" <=> "^(to_string v2)
         | ITE (grd,sv1,sv2) -> (g grd)^"?"^(g sv1)^":"^(g sv2)
         | Forall (tys,f) -> 
-            let fresh_bv = gen_name "bv" in
             let bvtys = List.map 
                           (fun ty -> (Ident.create @@ fresh_bv (),ty)) tys in
             let bvty_to_string (bv,ty) = 
@@ -186,7 +187,7 @@ struct
             "∀("^(String.concat "," @@ List.map bvty_to_string bvtys)^"). "
               ^(to_string @@ f @@ List.map fst bvtys)
         | Exists (tys,f) -> 
-            let fresh_bv = gen_name "bv" in
+            (*let fresh_bv = gen_name "bv" in*)
             let bvtys = List.map 
                           (fun ty -> (Ident.create @@ fresh_bv (),ty)) tys in
             let bvty_to_string (bv,ty) = 

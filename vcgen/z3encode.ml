@@ -33,7 +33,7 @@ let (cmap : (string,Expr.expr) Hashtbl.t) = Hashtbl.create 211
 let (tmap : (Type.t,Sort.sort) Hashtbl.t) = Hashtbl.create 47
 let (fmap : (string,FuncDecl.func_decl) Hashtbl.t) = Hashtbl.create 47
 
-let fresh_bv_name = gen_name "bv" 
+let (fresh_bv_name, bv_reset) = gen_name "bv" 
 let fresh_bv () = Ident.create @@  fresh_bv_name ()
 
 let reset () = 
@@ -102,25 +102,11 @@ let (@<=) e1 e2 = mk_le e1 e2
 let (@!=) e1 e2 = mk_not (e1 @= e2)
 let (!@) e = mk_not e
 
-let forall sorts f = 
-  let n = List.length sorts in
-  let names = List.tabulate n 
-                (fun i -> sym @@ "a"^(string_of_int i)) in
-  let vars = List.tabulate n 
-               (fun i -> mk_bound !ctx (n-i-1) 
-                           (List.nth sorts i)) in
-  let body = f vars in
-    mk_forall !ctx sorts names body None [] [] None None
+let mk_forall consts body = 
+    mk_forall_const !ctx consts body None [] [] None None
 
-let exists sorts f = 
-  let n = List.length sorts in
-  let names = List.tabulate n 
-                (fun i -> sym @@ "a"^(string_of_int i)) in
-  let vars = List.tabulate n 
-               (fun i -> mk_bound !ctx (n-i-1) 
-                           (List.nth sorts i)) in
-  let body = f vars in
-    mk_exists !ctx sorts names body None [] [] None None
+let mk_exists consts body = 
+    mk_exists_const !ctx consts body None [] [] None None
 
 let declare_enum_type (ty:Type.t) (consts: Ident.t list) =
   let mk_cstr e = 
@@ -243,38 +229,32 @@ let rec doIt_pred p =
       | P.And vs -> mk_and @@ List.map f vs
       | P.Or vs -> mk_or @@ List.map f vs
       | P.ITE (v1,v2,v3) -> mk_ite (f v1) (f v2) (f v3)
-      | P.If (t1,t2) -> (doIt_pred t1) @=> (doIt_pred t2)
-      | P.Iff (t1,t2) -> (doIt_pred t1) @<=> (doIt_pred t2)
+      | P.If (t1,t2) -> (f t1) @=> (f t2)
+      | P.Iff (t1,t2) -> (f t1) @<=> (f t2)
       | P.Forall (tys,f) -> expr_of_quantifier @@
-          forall (List.map sort_of_typ tys)
-            (fun es -> 
-               let bvs = List.map (fun e -> fresh_bv ()) es in
-               let _ = List.iter2
-                         (fun bv e -> Hashtbl.add cmap (Ident.name bv) e) 
-                         bvs es in
-               let p = doIt_pred @@ f bvs in
-               let _ = List.iter 
-                         (fun bv -> Hashtbl.remove cmap (Ident.name bv)) bvs in
-                 p)
+          let (bv_names,bv_ids,bv_consts) = List.split3 @@
+            List.map (fun ty -> 
+                        let sort = sort_of_typ ty in
+                        let bv_name = fresh_bv_name () in
+                        let bv_id = Ident.create bv_name in
+                        let bv_const = mk_const_s bv_name sort in
+                          (bv_name,bv_id,bv_const)) tys in
+          let _ = List.iter2 (Hashtbl.add cmap) bv_names bv_consts in
+          let body = doIt_pred @@ f bv_ids in
+          let _ = List.iter (Hashtbl.remove cmap) bv_names in
+            mk_forall bv_consts body
       | P.Exists (tys,f) -> expr_of_quantifier @@
-          exists (List.map sort_of_typ tys)
-            (fun es -> 
-               let bvs = List.map (fun e -> fresh_bv ()) es in
-               let _ = List.iter2
-                         (fun bv e -> Hashtbl.add cmap (Ident.name bv) e) 
-                         bvs es in
-               let p = doIt_pred @@ f bvs in
-               let _ = List.iter 
-                         (fun bv -> Hashtbl.remove cmap (Ident.name bv)) bvs in
-                 p)
-
-let declare_pred name p =
-  let s_pred = mk_const_s name (sort_of_typ Type.Bool) in
-  let e_pred = doIt_pred p in
-    begin
-      Hashtbl.add cmap name s_pred;
-      _assert @@ s_pred @<=> e_pred 
-    end
+          let (bv_names,bv_ids,bv_consts) = List.split3 @@
+            List.map (fun ty -> 
+                        let sort = sort_of_typ ty in
+                        let bv_name = fresh_bv_name () in
+                        let bv_id = Ident.create bv_name in
+                        let bv_const = mk_const_s bv_name sort in
+                          (bv_name,bv_id,bv_const)) tys in
+          let _ = List.iter2 (Hashtbl.add cmap) bv_names bv_consts in
+          let body = doIt_pred @@ f bv_ids in
+          let _ = List.iter (Hashtbl.remove cmap) bv_names in
+            mk_exists bv_consts body
 
 let assert_const name = 
   let s_pred = Hashtbl.find cmap name in
@@ -282,7 +262,10 @@ let assert_const name =
 
 let assert_prog phi = match phi with
   | P.And phis -> 
-      _assert_all @@ List.map doIt_pred phis
+      _assert_all @@ List.map 
+                       (fun phi -> 
+                          let p = doIt_pred phi in (bv_reset(); p)) 
+                       phis
   | _ -> _assert @@ doIt_pred phi
 
 let assert_neg_const name = 
@@ -290,17 +273,18 @@ let assert_neg_const name =
   _assert (mk_not s_pred)
 
 let setup (ke,te,phi) =
-  begin
-    declare_types ke;
-    declare_vars te;
-    assert_prog phi;
-    Printf.printf "*****  CONTEXT ******\n";
-    print_string @@ Solver.to_string !solver;
-    print_string "(check-sat)\n";
-    print_string "(get-model)\n";
-    Printf.printf "\n*********************\n";
-    flush_all ();
-  end
+  let out_chan = open_out "VC.z3" in
+    begin
+      declare_types ke;
+      declare_vars te;
+      assert_prog phi;
+      Printf.printf "*****  CONTEXT ******\n";
+      output_string out_chan @@ Solver.to_string !solver;
+      output_string out_chan "(check-sat)\n";
+      output_string out_chan "(get-model)\n";
+      Printf.printf "\n*********************\n";
+      flush_all ();
+    end
 
 let doIt (ke,te,phi) vcs = 
   if not (Log.open_ "z3.log") then

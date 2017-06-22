@@ -11,8 +11,8 @@ module VE = Light_env.Make(struct
                              include Speclang.Expr 
                            end)
 
-let fresh_Q_name = gen_name "Q"
-let fresh_U_name = gen_name "U"
+let (fresh_Q_name, _) = gen_name "Q"
+let (fresh_U_name, _) = gen_name "U"
 
 type env = {txn: Ident.t; 
             mutable ke: KE.t; 
@@ -353,6 +353,7 @@ let doIt_txn env (Fun.T txn_fn) (Spec.Txn txn) _I =
   let _ = printf "-------------------------------------\n" in
   let _ = printf "   Analyzing %s ...\n" txn.name in
   let _ = printf "-------------------------------------\n" in
+  (*let init_phi = env.phi in*)
   let iso_spec = Isolation.specification_of txn.iso in
   (* Phi <- Phi /\ iso_spec *)
   let _ = env.phi <- env.phi @&& iso_spec in
