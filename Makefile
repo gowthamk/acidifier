@@ -62,18 +62,20 @@ default: acidify.opt
 MYFILES=vcgen/utils.cmx vcgen/light_env.cmi vcgen/light_env.cmx \
 				vcgen/speclang.cmx vcgen/spec.cmi examples/bankaccount/spec.cmx \
 				vcgen/app.cmx vcgen/extract.cmi vcgen/extract.cmx \
-				vcgen/specelab.cmi vcgen/specelab.cmx vcgen/verify.cmi vcgen/verify.cmx \
+				vcgen/specelab.cmi vcgen/specelab.cmx \
+				vcgen/z3encode.cmi vcgen/z3encode.cmx \
+				vcgen/verify.cmi vcgen/verify.cmx \
 				
 
 MYCMX=vcgen/utils.cmx vcgen/light_env.cmx vcgen/speclang.cmx \
 			examples/bankaccount/spec.cmx vcgen/app.cmx vcgen/extract.cmx \
-			vcgen/specelab.cmx vcgen/verify.cmx
+			vcgen/specelab.cmx vcgen/z3encode.cmx vcgen/verify.cmx
 
 acidify.byte: $(ALLOBJS)
 	$(CAMLC) $(LINKFLAGS) -custom -o acidify.byte str.cma unix.cma nums.cma $(ALLOBJS)
 
 acidify.opt: $(ALLOBJS:.cmo=.cmx) $(MYFILES) $(COMP:.cmo=.cmx)
-	$(CAMLOPT) $(LINKFLAGS) -o acidify.opt str.cmxa unix.cmxa nums.cmxa $(ALLOBJS:.cmo=.cmx) $(MYCMX) $(COMP:.cmo=.cmx)
+	$(CAMLOPT) $(LINKFLAGS) -I `opam config var lib`/Z3 -cclib -L/Users/gowtham/git/z3/build/lib -o acidify.opt str.cmxa unix.cmxa nums.cmxa z3ml.cmxa $(ALLOBJS:.cmo=.cmx) $(MYCMX) $(COMP:.cmo=.cmx)
 
 reconfigure:
 	./configure $(CONFIGURE_ARGS)
@@ -177,7 +179,7 @@ beforedepend:: parsing/lexer.ml
 	$(CAMLC) $(COMPFLAGS) -c $<
 
 .ml.cmx:
-	$(CAMLOPT) $(COMPFLAGS) -c $<
+	ocamlfind $(CAMLOPT) $(COMPFLAGS) -package Z3 -c $<
 
 world: acidify.byte acidify.opt
 

@@ -4,6 +4,7 @@ open Typedtree
 open Speclang
 open Specelab
 module P = Predicate
+module Z3E = Z3encode
 open P
 
 module VE = Light_env.Make(struct 
@@ -392,6 +393,7 @@ let doIt_txn env (Fun.T txn_fn) (Spec.Txn txn) _I =
           BoolExpr(??_soundG) @<=> ?&& [fa_asn1; fa_asn2] in
   let _ = env.vcs <- _soundG::env.vcs in
   let _ = print_env env in
+  let _ = Z3E.doIt (env.ke,env.te,env.phi) env.vcs in
     ()
 
 let doIt (ke,te,phi) (App.T app) (Spec.T spec) = 

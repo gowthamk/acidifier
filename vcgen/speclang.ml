@@ -20,6 +20,11 @@ struct
     | Tuple ts -> "("^(String.concat "," @@ List.map to_string ts)^")"
     | Option t -> (to_string t)^" option"
 
+  let _of str = match str with
+    |"Id" -> Id | "Rec" -> Rec | "Loc" -> Loc | "St" -> St
+    | "Set" -> Set | "Str" -> String | "Unit" -> Unit
+    | "Table" -> Table | _ -> failwith "Type._of: Unexpected"
+
   let id = Id
   let table = Table
   let record = Rec

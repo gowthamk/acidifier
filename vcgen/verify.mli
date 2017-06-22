@@ -1,6 +1,11 @@
 open Specelab
 module P = Speclang.Predicate
 
+type env = {txn: Ident.t; 
+            mutable ke: KE.t; 
+            mutable te: TE.t; 
+            mutable phi: P.t; 
+            mutable vcs: Ident.t list;}
 (*
  * (Θ,Γ,Φ) ⊢ s◀τ
  *)
