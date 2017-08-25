@@ -218,13 +218,14 @@ let doIt_valbind env (lhs_id,lhs_tye,rhs_exp) _P =
                * it to be stable. *)
               let _Q = Ident.create @@ fresh_Q_name () in
               let _ = env.te <- TE.add _Q ty2 env.te in 
-              let ex_asn st= Exists ([Type.Loc], function [l] -> 
-                               ?&& [??l @: dom(st); 
-                                    value(st,??l) @== ??lhs_id]) in
+              let ex_asn stl stg = _Exists_St1_L1 @@ function (st,l) -> 
+                  ?&& [flush(??stl,??stg,??st); 
+                       ??l @: ??st; 
+                       value(??st,??l) @== ??lhs_id] in
               let asn (stl,stg) = 
                 b_app(_Q,[??stl;??stg]) @<=> ?&& [b_app(_P,[??stl;??stg]); 
                                                   select_pred;
-                                                  ex_asn (??stl @>> ??stg)] in
+                                                  ex_asn stl stg] in
               let _ = _assert @@ _Forall_St2 asn in
               (* stability of _Q *)
               let _stableQ = Ident.create @@ "rstable"^(Ident.name _Q) in
@@ -284,9 +285,9 @@ let rec doIt_exp env (exp:Typedtree.expression) _P =
               let _U = Ident.create @@ fresh_U_name () in
               (* TE[_U :-> St*St*St -> Bool]*)
               let _ = env.te <- TE.add _U ty3 env.te in
-              let u_def stg stl stl' l = 
-                let st = flush(??stl,??stg) in
-                let r_in_st = value(st,??l) in
+              let u_def stg stl st stl' l = 
+                (* Note: flush(??stl,??stg,??st) in*)
+                let r_in_st = value(??st,??l) in
                 (* r_in_st meets the search criterion (i.e.,
                  * f(value(flush(σl,σg),l))=true)*)
                 let ([w_arg],w_body) = Misc.extract_lambda w_case in
@@ -297,8 +298,8 @@ let rec doIt_exp env (exp:Typedtree.expression) _P =
                 (* grd_pred <=> l∈dom(flush(σl,σg)) 
                  *              /\ table(value(flush(σl,σg),l)) = table_name 
                  *              /\ f(value(flush(σl,σg),l)) *)
-                let grd_pred = ?&&[??l @: dom(st); 
-                                   table(value(st,??l)) @== ??tname; 
+                let grd_pred = ?&&[??l @: ??st; 
+                                   table(value(??st,??l)) @== ??tname; 
                                    w_pred] in
                 let r_in_stl' = value(??stl',??l) in
                 let ([old_r],s_body) = Misc.extract_lambda s_case in
@@ -307,19 +308,22 @@ let rec doIt_exp env (exp:Typedtree.expression) _P =
                 let s_pred = expr_to_pred (VE.add new_r r_in_stl' @@ 
                                            VE.add old_r r_in_st VE.empty) s_body in 
                 (* mod_pred <=> l∈dom(σl') /\ g(value(σl',l)) *)
-                let mod_pred = (??l @: dom(??stl')) @&& s_pred in
+                let mod_pred = (??l @: ??stl') @&& s_pred in
                 (* inv_pred <=> IF l∈dom(σl) 
                  *              THEN l∈dom(σl') /\ value(σl',l) = value(σl,l) 
                  *              ELSE ~(l∈dom(σl')) *)
-                let inv_pred = ITE (??l @: dom(??stl), 
-                                    ?&& [??l @: dom(??stl'); 
+                let inv_pred = ITE (??l @: ??stl, 
+                                    ?&& [??l @: ??stl'; 
                                          value(??stl',??l) @== value(??stl,??l)], 
-                                    Not (??l @: dom(??stl'))) in
+                                    Not (??l @: ??stl')) in
                   ITE(grd_pred, mod_pred, inv_pred) in
               (* Define _U *)
               let _U_def = _Forall_St3 @@ fun (stg,stl,stl') ->
                   b_app(_U,[??stg;??stl;??stl']) 
-                            @<=> _Forall_L1 @@ u_def stg stl stl' in
+                            @<=> 
+                  (_Exists_St1 @@ fun st -> 
+                     ?&&[flush(??stl,??stg,??st);
+                         _Forall_L1 @@ u_def stg stl st stl']) in
               let _ = _assert _U_def in
               (* Q(σl',σg) <=> ∃σl. P(σl,σg) /\ _U(σg,σl,σl')*)
               let _Q = Ident.create @@ fresh_Q_name () in
@@ -362,10 +366,9 @@ let doIt_txn env (Fun.T txn_fn) (Spec.Txn txn) _I =
   (* TE[_P :-> Type.St*Type.St -> Type.Bool] *)
   let _ = env.te <- TE.add _P ty2 env.te in
   (* Phi <- Phi /\ (_P(stl,stg) <=> (dom(stl)=empty) /\ I(stg))*)
-  let _P_def = Forall ([Type.St; Type.St], 
-                function [stl; stg] -> b_app(_P,[??stl;??stg]) @<=> 
-                  ?&& [dom(??stl) @== ??(L.empty); 
-                       b_app(_I,[??stg])]) in
+  let _P_def = _Forall_St2 @@ fun (stl,stg) ->
+      b_app(_P,[??stl;??stg]) @<=> ?&& [empty_st(??stl); 
+                                        b_app(_I,[??stg])] in
   let _ = env.phi <- env.phi @&& _P_def in
   (* Start analyzing the txn function *)
   (* TE[arg_i :-> arg_i_T]*) 
@@ -385,8 +388,9 @@ let doIt_txn env (Fun.T txn_fn) (Spec.Txn txn) _I =
   (* ∀(σ,σ'). I(σ) ∧ G(σ,σ') => I(σ') *)
   let _soundG = Ident.create @@ "sound"^(Ident.name _G) in
   let _ = env.te <- TE.add _soundG Type.Bool env.te in
-  let fa_asn1 = _Forall_St2 @@ fun (stl,stg) ->
-    b_app(_Q,[??stl;??stg]) @=> b_app(_G,[??stl @>> ??stg; ??stg]) in
+  let fa_asn1 = _Forall_St3 @@ fun (stl,stg,st) ->
+    ?&&[b_app(_Q,[??stl;??stg]); flush(??stl,??stg,??st)] 
+          @=> b_app(_G,[??st; ??stg]) in
   let fa_asn2 = _Forall_St2 @@ fun (stg,stg') ->
         (b_app(_I,[??stg]) @&& b_app(_G,[??stg;??stg'])) 
               @=> b_app(_I,[??stg']) in

@@ -69,7 +69,8 @@ MYFILES=vcgen/utils.cmx vcgen/light_env.cmi vcgen/light_env.cmx \
 
 MYCMX=vcgen/utils.cmx vcgen/light_env.cmx vcgen/speclang.cmx \
 			examples/bankaccount/spec.cmx vcgen/app.cmx vcgen/extract.cmx \
-			vcgen/specelab.cmx vcgen/z3encode.cmx vcgen/verify.cmx
+			vcgen/specelab.cmx \
+			vcgen/z3encode.cmx vcgen/verify.cmx
 
 acidify.byte: $(ALLOBJS)
 	$(CAMLC) $(LINKFLAGS) -custom -o acidify.byte str.cma unix.cma nums.cma $(ALLOBJS)

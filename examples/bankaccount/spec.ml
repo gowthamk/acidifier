@@ -21,8 +21,8 @@ let user_account = ??(Ident.create "user_account")
 let withdraw_G (st,st') = 
   Exists ([Type.Loc], 
           function [l] ->     
-            (?&& [??l @: dom(??st);
-                  dom(??st') @== dom(??st);
+            (?&& [??l @: ??st;
+                  dom_eq(??st',??st);
                   table(value(??st,??l)) @== user_account;
                   table(value(??st',??l)) @== user_account; 
                   id(value(??st',??l)) @== id(value(??st,??l));
@@ -38,8 +38,8 @@ let deposit_G (st,st') = withdraw_G (st,st')
 let save_G (st,st') = 
   Exists ([Type.Loc], 
           function [l] ->     
-            (?&& [??l @: dom(??st);
-                  dom(??st') @== dom(??st);
+            (?&& [??l @: ??st;
+                  dom_eq(??st',??st);
                   table(value(??st,??l)) @== user_account;
                   table(value(??st',??l)) @== user_account; 
                   id(value(??st',??l)) @== id(value(??st,??l));
@@ -51,14 +51,15 @@ let save_G (st,st') =
 
 let inv (st) = 
   Forall ([Type.Loc], function [l] ->
-        (?&& [cbal(value(??st,??l)) @>= ConstInt(0); 
-              sbal(value(??st,??l)) @>= ConstInt(0)]))
+        (??l @: ??st) @=>
+            (?&& [cbal(value(??st,??l)) @>= ConstInt(0); 
+                  sbal(value(??st,??l)) @>= ConstInt(0)]))
 
 let basic_axioms () = 
   Forall ([Type.St; Type.Loc; Type.Loc], 
          function [st; l1; l2] -> 
-           let anteP = (?&& [??l1 @: dom(??st);
-                             ??l2 @: dom(??st);
+           let anteP = (?&& [??l1 @: ??st;
+                             ??l2 @: ??st;
                              id(value(??st,??l1)) @== id(value(??st,??l2))]) in 
            let conseqP = ??l1 @== ??l2 in
              anteP @=> conseqP)

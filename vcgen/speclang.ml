@@ -111,9 +111,9 @@ struct
   let value = Ident.create "value"
   let add = Ident.create "add"
   let remove = Ident.create "remove"
-  let dom = Ident.create "dom"
-  let inn = Ident.create "in"
-  let empty = Ident.create "empty"
+  let in_dom = Ident.create "in_dom"
+  let dom_eq = Ident.create "dom_eq"
+  let empty_st = Ident.create "empty"
   let flush = Ident.create "flush"
   (* Field Accessors. Eg: s_id, c_name etc *)
   let (accessors: (string * Ident.t) list ref) = ref []
@@ -207,7 +207,7 @@ struct
     | _ -> Or [p1;p2]
   let truee = BoolExpr (Expr.ConstBool true)
   let falsee = BoolExpr (Expr.ConstBool false)
-  let (@:) x y = BoolExpr (Expr.App (L.inn,[x;y]))
+  let (@:) x y = BoolExpr (Expr.App (L.in_dom,[x;y]))
   let (?&&) xs = And xs
   let (?||) xs = Or xs
   let (@&&) x y = conj x y
@@ -217,15 +217,20 @@ struct
   let (@=>) x y = If (x,y)
   let (@<=>) x y = Iff (x,y)
   let (??) x = Expr.Var x
-  let dom x = Expr.App (L.dom,[x])
+  let empty_st x = BoolExpr (Expr.App (L.empty_st,[x]))
   let add (s2,s1,x) = BoolExpr (Expr.App (L.add,[s2; s1; x]))
   let remove (s2,s1,x) = BoolExpr (Expr.App (L.remove,[s2; s1; x]))
   let value (st,l) = Expr.App (L.value,[st;l])
-  let flush (stl,stg) = Expr.App (L.flush, [stl;stg])
-  let (@>>) x y = flush (x,y)
+  let flush (stl,stg,st) = BoolExpr (Expr.App (L.flush, [stl;stg;st]))
+  let dom_eq (st1,st2) = BoolExpr (Expr.App (L.dom_eq,[st1;st2]))
+  (*let (@>>) x y = flush (x,y)*)
   let b_app (bf,args) = BoolExpr(Expr.App (bf,args))
   let table (x) = Expr.App (L.table, [x])
 
+  let _Forall_St1 f = Forall ([Type.St], 
+                              fun l -> match l with 
+                                | [stl] -> f stl
+                                | _ -> failwith "_Forall_St1: Unexpected")
   let _Forall_St2 f = Forall ([Type.St; Type.St], 
                               fun l -> match l with 
                                 | [stl;stg] -> f(stl,stg)
@@ -234,12 +239,27 @@ struct
                               fun l -> match l with 
                                 | [stl;stg;stg'] -> f(stl,stg,stg')
                                 | _ -> failwith "_Forall_St3: Unexpected")
+  let _Forall_St4 f = Forall ([Type.St; Type.St; Type.St; Type.St], 
+                              fun l -> match l with 
+                                | [st0;st1;st2;st3] -> f(st0,st1,st2,st3)
+                                | _ -> failwith "_Forall_St4: Unexpected")
   let _Forall_L1 f = Forall ([Type.Loc], 
                               fun x -> match x with | [l] -> f l
                                 | _ -> failwith "_Forall_L1: Unexpected")
+  let _Forall_St3_L1 f = Forall ([Type.St; Type.St; Type.St; Type.Loc], 
+                              fun l -> match l with 
+                                | [stl;stg;stg';l] -> f(stl,stg,stg',l)
+                                | _ -> failwith "_Forall_St3_L1: Unexpected")
   let _Exists_St1 f = Exists ([Type.St], 
                               fun l -> match l with | [st] -> f st
                                 | _ -> failwith "_Exists_St1: Unexpected")
+  let _Exists_L1 f = Exists ([Type.Loc], 
+                              fun x -> match x with | [l] -> f l
+                                | _ -> failwith "_Exists_L1: Unexpected")
+  let _Exists_St1_L1 f = Exists ([Type.St; Type.Loc], 
+                              fun l -> match l with 
+                                | [st;l] -> f(st,l)
+                                | _ -> failwith "_Exists_St1_L1: Unexpected")
 end
 
 module Isolation = 
@@ -250,7 +270,7 @@ struct
 
   let no_W_W_conflict (stl,stg,stg') = 
       Forall ([Type.Loc], function [l] -> 
-                (??l @: dom(??stl)) @=> (value(??stg,??l) @== value(??stg',??l)))
+                (??l @: ??stl) @=> (value(??stg,??l) @== value(??stg',??l)))
   (*
    * Store-specific basic isolation common to all levels.
    *)

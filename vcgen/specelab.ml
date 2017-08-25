@@ -11,6 +11,9 @@ let mk_nullary_cons name : Cons.t =
   let recognizer = "is"^name in
     Cons.T {name=name; recognizer=recognizer; args=[]}
 
+let ty1  = Type.Arrow (Type.St, Type.Bool)
+let ty2  = Type.Arrow (Type.Tuple [Type.St; Type.St], Type.Bool)
+let ty3 = Type.Arrow (Type.Tuple [Type.St; Type.St; Type.St], Type.Bool)
 
 let bootstrap_pe (Spec.T spec) = 
   let _Gs = List.map (fun (Spec.Txn tspec) -> 
@@ -32,22 +35,41 @@ let bootstrap_pe (Spec.T spec) =
         (?&& [b_app(L._R,[??stg;??stg']); 
               b_app(L._IIc,[??stl;??stg;??stg'])])) in
   (* flush_def *)
-  let flush_asn1 = _Forall_St2 @@ fun (stl,stg) ->
-    _Forall_L1 @@ fun l -> 
-      (??l @: dom(flush(??stl,??stg))) @<=> ?|| [??l @: dom(??stl); 
-                                                 ??l @: dom(??stg)] in
-  let _ = Printf.printf ">> Flush asn1: %s\n" @@ P.to_string flush_asn1 in
-  let flush_asn2 = _Forall_St2 @@ fun (stl,stg) ->
-    _Forall_L1 @@ fun l -> 
-      let l_in_dom_stl = ??l @: dom(??stl) in
-      let l_in_dom_stg = ??l @: dom(??stg) in
-        ITE (l_in_dom_stl, 
-             value(flush(??stl,??stg),??l) @== value(??stl,??l),
-             l_in_dom_stg @=>
-                 (value(flush(??stl,??stg),??l) @== value(??stg,??l))) in
-  let _ = Printf.printf ">> Flush asn2: %s\n" @@ P.to_string flush_asn2 in
-    ?&& ([_R_def; _Rl_def; _Rc_def; flush_asn1; flush_asn2] 
-            @ spec.asserts)
+  let flush_asn1 st0 st1 st2 l = 
+      (??l @: ??st2) @<=> ?|| [??l @: ??st1; ??l @: ??st0] in
+  let flush_asn2 st0 st1 st2 l = 
+      let l_in_dom_st0 = ??l @: ??st0 in
+      let l_in_dom_st1 = ??l @: ??st1 in
+        ITE (l_in_dom_st0, 
+             value(??st2,??l) @== value(??st0,??l),
+             l_in_dom_st1 @=>
+                 (value(??st2,??l) @== value(??st1,??l))) in
+  let flush_def = _Forall_St3_L1 @@ fun (st0,st1,st2,l) ->
+      flush(??st0,??st1,??st2) @<=> ?&& [flush_asn1 st0 st1 st2 l; 
+                                         flush_asn2 st0 st1 st2 l] in
+  (* flush theorems *)
+  let flush_thm1 = _Forall_St3 @@ fun (st0,st1,st2) ->
+      (?&& [empty_st(??st0); flush(??st0,??st1,??st2)]) @=> (??st1 @== ??st2) in
+  let flush_thm2 = _Forall_St4 @@ fun (st0,st1,st2,st3) ->
+      (?&& [flush(??st0,??st1,??st2); 
+            flush(??st0,??st1,??st3)]) @=> (??st2 @== ??st3) in
+  (* dom_eq def *)
+  let dom_eq_def = _Forall_St2 @@ fun (st1,st2) -> 
+    dom_eq(??st1,??st2) @<=> _Forall_L1 @@ fun l -> 
+      (??l @: ??st1) @<=> (??l @: ??st2) in
+  (* empty_st def *)
+  let empty_st_def = _Forall_St1 @@ fun st -> 
+    empty_st(??st) @<=> (_Forall_L1 @@ fun l -> Not (??l @: ??st)) in
+  (* Value axiom - Extensional equality of states *)
+  let value_axiom = 
+    let ext_eq st1 st2 = _Forall_L1 @@ fun l ->
+        (?&& [??l @: ??st1; ??l @: ??st2]) @=> 
+                      (value(??st1,??l) @== value(??st2,??l)) in
+      _Forall_St2 @@ fun (st1,st2) ->
+          (?&&[dom_eq(??st1,??st2); ext_eq st1 st2]) 
+                @=> (??st1 @== ??st2) in
+    ?&& ([_R_def; _Rl_def; _Rc_def; flush_def; flush_thm1; flush_thm2; 
+          dom_eq_def; empty_st_def; value_axiom] @ spec.asserts)
 
 let bootstrap (App.T {schemas; txns}) = 
   (* 1. Id typedef to KE *)
@@ -59,7 +81,7 @@ let bootstrap (App.T {schemas; txns}) =
   (* 4. St typedef to KE *)
   let add_St = KE.add (Ident.create "St") Kind.Uninterpreted in
   (* 5. Set typedef to KE *)
-  let add_Set = KE.add (Ident.create "Set") Kind.Uninterpreted in
+  (*let add_Set = KE.add (Ident.create "Set") Kind.Uninterpreted in*)
   (* 6. Str typedef to KE *)
   let add_Str = KE.add (Ident.create "Str") Kind.Uninterpreted in
   (* 7. TE[value :-> St*Loc -> Rec] *)
@@ -74,8 +96,8 @@ let bootstrap (App.T {schemas; txns}) =
   let add_add = TE.add L.add @@
                   Type.Arrow (Type.Tuple[Type.set; Type.set; Type.loc], 
                               Type.Bool) in
-  (* TE[empty :-> Set] *)
-  let add_empty = TE.add L.empty Type.set in
+  (* TE[empty_st :-> St -> Bool] *)
+  let add_empty_st = TE.add L.empty_st (Type.Arrow (Type.St,Type.Bool)) in
   (* 10. eg: KE[table :-> Variant{Stock, Order, Customer, ...}] *)
   let table_names = List.map Tableschema.name schemas in
   let add_Table = 
@@ -85,18 +107,20 @@ let bootstrap (App.T {schemas; txns}) =
   let add_table te = 
     let typ = Type.Arrow (Type.record,Type.table) in
       TE.add (L.table) typ te in
-  (* 13. TE[dom :-> Type.St -> Type.Set] *)
-  let add_dom te = 
+  (*let add_dom te = 
     let typ = Type.Arrow (Type.St, Type.Set) in
-      TE.add (L.dom) typ te in
-  (* 14. TE[in :-> Type.Loc*Type.Set -> Type.Bool] *)
-  let add_in te = 
-    let typ = Type.Arrow (Type.Tuple [Type.Loc; Type.Set], Type.Bool) in
-      TE.add (L.inn) typ te in
-  (* 14. TE[flush :-> Type.St*Type.St ]*)
+      TE.add (L.dom) typ te in*)
+  (* 13. TE[dom_eq :-> Type.St*Type.St -> Type.Bool] *)
+  let add_dom_eq te = 
+    let typ = Type.Arrow (Type.Tuple [Type.St; Type.St], Type.Bool) in
+      TE.add (L.dom_eq) typ te in
+  (* 14. TE[in_dom :-> Type.Loc*Type.St -> Type.Bool] *)
+  let add_in_dom te = 
+    let typ = Type.Arrow (Type.Tuple [Type.Loc; Type.St], Type.Bool) in
+      TE.add (L.in_dom) typ te in
+  (* 14. TE[flush :-> Type.St*Type.St*Type.St -> Type.Bool]*)
   let add_flush te = 
-    let typ = Type.Arrow (Type.Tuple [Type.St; Type.St], Type.St) in
-      TE.add (L.flush) typ te in
+      TE.add (L.flush) ty3 te in
   (* 15. Record field accessors to TE *)
   (* eg: TE[s_id :-> Type.record -> Type.Id],
    *     TE[c_name :-> Type.record -> Type.String]*)
@@ -117,21 +141,18 @@ let bootstrap (App.T {schemas; txns}) =
   (* 16. TE[_IIr/IIc/Rl/Rc :-> Type.St*Type.St*Type.St -> Type.Bool] *)
   (*     TE[G :-> (St*St) -> Bool]; TE[I :-> St -> Bool]*)
   let add_Rs_Gs_IIs_and_I te = 
-    let ty1  = Type.Arrow (Type.St, Type.Bool) in
-    let ty2  = Type.Arrow (Type.Tuple [Type.St; Type.St], Type.Bool) in
-    let ty3 = Type.Arrow (Type.Tuple [Type.St; Type.St; Type.St], Type.Bool) in
-      begin
-        TE.add L._R ty2 @@ TE.add L._Rc ty3 @@ TE.add L._Rl ty3 @@ 
-        TE.add L._IIc ty3 @@ TE.add L._IIr ty3 @@ TE.add _I ty1 @@
-        List.fold_left (fun te _G -> TE.add _G ty2 te) te _Gs
-      end in
+    begin
+      TE.add L._R ty2 @@ TE.add L._Rc ty3 @@ TE.add L._Rl ty3 @@ 
+      TE.add L._IIc ty3 @@ TE.add L._IIr ty3 @@ TE.add _I ty1 @@
+      List.fold_left (fun te _G -> TE.add _G ty2 te) te _Gs
+    end in
   (* bootstrap KE *)
   let ke = List.fold_left (fun ke f -> f ke) KE.empty
-      [add_Id; add_Rec; add_Loc; add_St; add_Set; add_Str; add_Table] in
+      [add_Id; add_Rec; add_Loc; add_St; add_Str; add_Table] in
   (* bootstrap TE *)
   let te = List.fold_left (fun te f -> f te) TE.empty
-      [add_value; add_remove; add_add; add_empty; add_table; add_dom; 
-       add_in; add_flush; add_field_accessors; add_Rs_Gs_IIs_and_I] in
+      [add_value; add_empty_st; add_table; add_dom_eq; 
+       add_in_dom; add_flush; add_field_accessors; add_Rs_Gs_IIs_and_I] in
   (* bootstrap Phi *)
   let phi = bootstrap_pe (Spec.T spec) in
     (ke,te,phi)

@@ -1,1 +1,3 @@
 ./acidify.opt -w -20 -c examples/bankaccount/app.ml
+
+z3 -smt2 smt.auto-config=false smt.mbqi=true smt.macro-finder=true smt.mbqi.max_iterations=100 smt.mbqi.trace=true smt.pull_nested_quantifiers=true trace=true model.partial=true model.compact=false smt.qi.profile=true smt.random-seed=23 VC.z3
