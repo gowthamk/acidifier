@@ -6,14 +6,14 @@ module Type =
 struct
   (* Types of the spec language *)
   type t = Any | Int | Bool | String | Unit 
-    | Id | Loc | Rec | St | Set | Table | Date
+    | Id | Rec | St | Set | Table | Date
     | Arrow of t*t | List of t | Tuple of t list
     | Option of t
 
   let rec to_string = function Any -> "any"
     | Int -> "Int" | Bool -> "Bool" | Id -> "Id"
     | String -> "String" | Unit -> "Unit" 
-    | Table -> "Table" | Loc -> "Loc" | Date -> "Date"
+    | Table -> "Table" | Date -> "Date"
     | Rec -> "Rec" | St -> "St" | Set -> "Set"
     | Arrow (t1,t2) -> (to_string t1)^" -> "^(to_string t2)
     | List t -> (to_string t)^" list"
@@ -21,14 +21,13 @@ struct
     | Option t -> (to_string t)^" option"
 
   let _of str = match str with
-    |"Id" -> Id | "Rec" -> Rec | "Loc" -> Loc | "St" -> St
+    |"Id" -> Id | "Rec" -> Rec | "St" -> St
     | "Set" -> Set | "Str" -> String | "Unit" -> Unit
     | "Table" -> Table | _ -> failwith "Type._of: Unexpected"
 
   let id = Id
   let table = Table
   let record = Rec
-  let loc = Loc
   let st = St
   let set = Set
 end
@@ -107,11 +106,11 @@ struct
   (*
    * Constants of the spec language
    *)
+  let id = Ident.create "id"
+  let del = Ident.create "del"
+  let txn = Ident.create "txn"
   let table = Ident.create "table"
-  let value = Ident.create "value"
-  let add = Ident.create "add"
-  let remove = Ident.create "remove"
-  let in_dom = Ident.create "in_dom"
+  let is_in = Ident.create "in"
   let dom_eq = Ident.create "dom_eq"
   let empty_st = Ident.create "empty"
   let flush = Ident.create "flush"
@@ -119,7 +118,9 @@ struct
   let (accessors: (string * Ident.t) list ref) = ref []
   let set_accessors (acc_idents:Ident.t list) : unit = 
     accessors := List.map (fun a -> (Ident.name a, a)) acc_idents
-  let get_accessor str = List.assoc str !accessors
+  let get_accessor = function
+    | "id" -> id | "del" -> del | "txn" -> txn (* spl. accessors *)
+    | str -> List.assoc str !accessors
   (* Invariants and Relations *)
   let _II = Ident.create "II"
   let _IIr = Ident.create "IIr"
@@ -146,10 +147,13 @@ struct
     | ConstBool b -> string_of_bool b
     | ConstString s -> s
 end
-module Predicate = 
+
+module BasePredicate = 
 struct
-  type t = 
-    | BoolExpr of Expr.t
+  (* Will be extended later to include set predicates *)
+  type t = ..
+  type t += 
+    | BoolExpr of Expr.t 
     | Eq of Expr.t * Expr.t
     | GE of Expr.t * Expr.t
     | LE of Expr.t * Expr.t
@@ -194,6 +198,7 @@ struct
                           (Ident.name bv)^":" ^(Type.to_string ty) in
             "∃("^(String.concat "," @@ List.map bvty_to_string bvtys)^"). "
               ^(to_string @@ f @@ List.map fst bvtys)
+        | _ -> failwith "Predicate.to_string: Unimpl"
 
   let conj p1 p2 = match (p1,p2) with
     | (And xs, And ys) -> And (xs@ys)
@@ -207,60 +212,135 @@ struct
     | _ -> Or [p1;p2]
   let truee = BoolExpr (Expr.ConstBool true)
   let falsee = BoolExpr (Expr.ConstBool false)
-  let (@:) x y = BoolExpr (Expr.App (L.in_dom,[x;y]))
+  let (@:) r s = BoolExpr (Expr.App (L.is_in,[r;s]))(*r∈s*)
   let (?&&) xs = And xs
   let (?||) xs = Or xs
   let (@&&) x y = conj x y
+  let (@||) x y = disj x y
   let (@==) x y = Eq (x,y)
   let (@!=) x y = Not (Eq (x,y))
   let (@>=) x y = GE (x,y)
   let (@=>) x y = If (x,y)
   let (@<=>) x y = Iff (x,y)
   let (??) x = Expr.Var x
+  let (!!) c = Expr.ConstInt c
   let empty_st x = BoolExpr (Expr.App (L.empty_st,[x]))
-  let add (s2,s1,x) = BoolExpr (Expr.App (L.add,[s2; s1; x]))
-  let remove (s2,s1,x) = BoolExpr (Expr.App (L.remove,[s2; s1; x]))
-  let value (st,l) = Expr.App (L.value,[st;l])
   let flush (stl,stg,st) = BoolExpr (Expr.App (L.flush, [stl;stg;st]))
   let dom_eq (st1,st2) = BoolExpr (Expr.App (L.dom_eq,[st1;st2]))
-  (*let (@>>) x y = flush (x,y)*)
   let b_app (bf,args) = BoolExpr(Expr.App (bf,args))
-  let table (x) = Expr.App (L.table, [x])
+  let table (x) = Expr.App (L.table, [x]) 
+  let id (x) = Expr.App (L.id,[x])
+  let del (x) = BoolExpr (Expr.App (L.del,[x]))
+  let txn (x) = Expr.App (L.txn,[x])
+  let is_in_dom (i,st) = 
+    Exists ([Type.Rec], fun [r] -> ?&& [??r @: st;
+                                        id(??r) @== i])
+  let is_not_in_dom (i,st) = Not (is_in_dom (i,st))
+  let _R (st,st') = b_app(L._R,[st;st'])
+  let _Rl (stl,stg,stg') = b_app(L._Rl,[stl;stg;stg'])
+  let _Rc (stl,stg,stg') = b_app(L._Rc,[stl;stg;stg'])
+  let _IIr (stl,stg,stg') = b_app(L._IIr,[stl;stg;stg'])
+  let _IIc (stl,stg,stg') = b_app(L._IIc,[stl;stg;stg'])
 
-  let _Forall_St1 f = Forall ([Type.St], 
-                              fun l -> match l with 
-                                | [stl] -> f stl
-                                | _ -> failwith "_Forall_St1: Unexpected")
-  let _Forall_St2 f = Forall ([Type.St; Type.St], 
-                              fun l -> match l with 
-                                | [stl;stg] -> f(stl,stg)
-                                | _ -> failwith "_Forall_St2: Unexpected")
-  let _Forall_St3 f = Forall ([Type.St; Type.St; Type.St], 
-                              fun l -> match l with 
-                                | [stl;stg;stg'] -> f(stl,stg,stg')
-                                | _ -> failwith "_Forall_St3: Unexpected")
-  let _Forall_St4 f = Forall ([Type.St; Type.St; Type.St; Type.St], 
-                              fun l -> match l with 
-                                | [st0;st1;st2;st3] -> f(st0,st1,st2,st3)
-                                | _ -> failwith "_Forall_St4: Unexpected")
-  let _Forall_L1 f = Forall ([Type.Loc], 
-                              fun x -> match x with | [l] -> f l
-                                | _ -> failwith "_Forall_L1: Unexpected")
-  let _Forall_St3_L1 f = Forall ([Type.St; Type.St; Type.St; Type.Loc], 
-                              fun l -> match l with 
-                                | [stl;stg;stg';l] -> f(stl,stg,stg',l)
-                                | _ -> failwith "_Forall_St3_L1: Unexpected")
-  let _Exists_St1 f = Exists ([Type.St], 
-                              fun l -> match l with | [st] -> f st
-                                | _ -> failwith "_Exists_St1: Unexpected")
-  let _Exists_L1 f = Exists ([Type.Loc], 
-                              fun x -> match x with | [l] -> f l
-                                | _ -> failwith "_Exists_L1: Unexpected")
-  let _Exists_St1_L1 f = Exists ([Type.St; Type.Loc], 
-                              fun l -> match l with 
-                                | [st;l] -> f(st,l)
-                                | _ -> failwith "_Exists_St1_L1: Unexpected")
+  let _Forall_St1 f = 
+    Forall ([Type.St], 
+            fun l -> match l with 
+              | [stl] -> f stl
+              | _ -> failwith "_Forall_St1: Unexpected")
+  let _Forall_St2 f = 
+    Forall ([Type.St; Type.St], 
+            fun l -> match l with 
+              | [stl;stg] -> f(stl,stg) 
+              | _ -> failwith "_Forall_St2: Unexpected")
+  let _Forall_St3 f = 
+    Forall ([Type.St; Type.St; Type.St], 
+            fun l -> match l with 
+              | [stl;stg;stg'] -> f(stl,stg,stg')
+              | _ -> failwith "_Forall_St3: Unexpected")
+  let _Forall_St4 f = 
+    Forall ([Type.St; Type.St; Type.St; Type.St], 
+            fun l -> match l with 
+              | [st0;st1;st2;st3] -> f(st0,st1,st2,st3) 
+              | _ -> failwith "_Forall_St4: Unexpected")
+  let _Forall_Rec1 f = 
+    Forall ([Type.Rec], 
+            fun l -> match l with 
+              | [r] -> f r 
+              | _ -> failwith "_Forall_Rec1: Unexpected")
+  let _Forall_Rec2 f = 
+    Forall ([Type.Rec; Type.Rec], 
+            fun l -> match l with 
+              | [r1;r2] -> f (r1,r2) 
+              | _ -> failwith "_Forall_Rec2: Unexpected")
+  let _Forall_St1_Rec1 f = 
+    Forall ([Type.St; Type.Rec], 
+            function [st;r] -> f (st,r)
+              | _ -> failwith "_Forall_St1_Rec1: Unexpected")
+  let _Forall_St3_Rec1 f = 
+    Forall ([Type.St; Type.St; Type.St; Type.Rec], 
+            fun l -> match l with 
+              | [stl;stg;stg';r] -> f(stl,stg,stg',r) 
+              | _ -> failwith "_Forall_St3_Rec1: Unexpected")
+  let _Exists_Id1 f = 
+    Exists ([Type.Id], 
+            function [i] -> f i
+                   | _ -> failwith "_Exists_Id1: Unexpected")
 end
+
+module Set = 
+struct
+  module P = BasePredicate
+
+  type t = Const of Expr.t list (* {1,2}, .. *)
+         | Var of Ident.t (* x, δ, Δ, ... *)
+         | Lit of (Ident.t -> P.t) (* {x | φ} *)
+         | Exists of (Ident.t -> P.t * t) (* exists(x,φ,s) *)
+         | Bind of t * (Ident.t -> t) (* s1 »= λx.s2 *)
+         | ITE of P.t * t * t (* if φ then s1 else s2 *)
+         | U of t*t (* s1 ∪ s2 *)
+
+  let (fresh_bv,_) = gen_name "sv"
+
+  let rec to_string t = let ty = Type.Rec in match t with
+    | Var x -> Ident.name x
+    | Lit f -> 
+      let bv = Ident.create @@ fresh_bv () in
+        "{ "^(Ident.name bv)^":"^(Type.to_string ty)^" | "
+          ^(P.to_string @@ f bv)^" }"
+    | Exists f -> 
+      let bv = Ident.create @@ fresh_bv () in
+      let (phi,s) = f bv in 
+        "∃("^(Ident.name bv)^":"^(Type.to_string ty)^" | "
+          ^(P.to_string phi)^"). "^(to_string s)
+    | Bind (s1,f2) ->
+      let s1str = to_string s1 in
+      let tystr = Type.to_string ty in
+      let bv = Ident.create @@ fresh_bv () in
+      let bvstr = Ident.name bv in
+      let s2str = to_string @@ f2 bv in
+        "("^s1str^") >>= (fun "^bvstr^":"^tystr^" -> "^s2str^")"
+    | ITE (phi,s1,s2) -> (P.to_string phi)^"? "^(to_string s1)
+                         ^": "^(to_string s2)
+    | U (s1,s2) -> (to_string s1)^" U "^(to_string s2)
+
+  let (???) x = Var x
+  let (!!!) l = Const l
+  let (@>>=) s f = Bind (s,f)
+  let (@<+>) s1 s2 = U (s1,s2)
+end
+
+module Predicate = struct
+  module S = Set
+  include BasePredicate
+
+  type t += SetEq of S.t * S.t
+
+  let to_string = function
+    | SetEq (s1,s2) -> (S.to_string s1)^" = "^(S.to_string s2)
+    | s -> (*BasePredicate.*)to_string s
+
+  let (@===) s1 s2 = SetEq (s1,s2)
+end 
 
 module Isolation = 
 struct
@@ -268,31 +348,41 @@ struct
 
   open Predicate
 
-  let no_W_W_conflict (stl,stg,stg') = 
-      Forall ([Type.Loc], function [l] -> 
-                (??l @: ??stl) @=> (value(??stg,??l) @== value(??stg',??l)))
   (*
-   * Store-specific basic isolation common to all levels.
+   * Common isolation guarantees.
    *)
-  let _II  = no_W_W_conflict
+  (* No isolation *)
+  let _II0 _ = truee 
+  (* No write-write conflicts: 
+       ∀(r′ ∈ δ)(r ∈ ∆). r.id = r′.id ⇒ r ∈ ∆′ *)
+  let _IIww (stl,stg,stg') = _Forall_Rec2 @@
+    fun (r,r') -> ?&& [??r' @: stl; 
+                       ??r @: stg;
+                       id(??r) @== id(??r')]
+                  @=> (??r @: stg')
+  (* Snapshot isolation: ∆′ =∆ *)
+  let _IIss (stl,stg,stg') = stg' @== stg
 
-  let specification_of = 
-    let ret (_IIr,_IIc) = 
-          ?&& [Forall ([Type.St; Type.St; Type.St], 
-                function [stl;stg;stg'] -> b_app(L._IIr,[??stl;??stg;??stg']) 
-                                           @<=> ?&& [_II(stl,stg,stg'); 
-                                                     _IIr(stl,stg,stg')]); 
-               Forall ([Type.St; Type.St; Type.St], 
-                function [stl;stg;stg'] -> b_app(L._IIc,[??stl;??stg;??stg']) 
-                                           @<=> ?&& [_II(stl,stg,stg'); 
-                                                     _IIc(stl,stg,stg')])] in
-    let no_iso = fun _ -> truee in
-    let full_iso = fun (stl,stg,stg') -> ??stg' @== ??stg in
+  (*
+   * Machine/store-specific basic isolation common to all levels.
+   *)
+  let _IIm  = _IIww
+
+  let spec_of = 
+    let ret (spec_r,spec_c) = 
+          ?&& [(_Forall_St3 @@ fun (stl,stg,stg') -> 
+                  _IIr(??stl,??stg,??stg') 
+                         @<=> ?&& [_IIm(??stl,??stg,??stg'); 
+                                   spec_r(??stl,??stg,??stg')]); 
+               (_Forall_St3 @@ fun (stl,stg,stg') -> 
+                  _IIc(??stl,??stg,??stg') 
+                         @<=> ?&& [_IIm(??stl,??stg,??stg'); 
+                                   spec_c(??stl,??stg,??stg')])] in
       function
-      | RC -> ret (no_iso,no_iso)
-      | RR -> ret (full_iso, no_iso) 
-      | SI -> ret (full_iso, no_W_W_conflict)
-      | SER -> ret (full_iso,full_iso)
+      | RC -> ret (_II0, _II0)
+      | RR -> ret (_IIss, _II0) 
+      | SI -> ret (_IIss, _IIww)
+      | SER -> ret (_IIss, _IIss)
 end
 
 module Misc =

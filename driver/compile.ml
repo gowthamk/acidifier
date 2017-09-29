@@ -66,10 +66,6 @@ let implementation ppf sourcefile outputprefix =
   let modulename = module_of_filename ppf sourcefile outputprefix in
   Env.set_unit_name modulename;
   let env = Compmisc.initial_env() in
-  let is_app_mod sourcefile = 
-    match Str.split (Str.regexp "_") (Filename.chop_extension sourcefile) with
-      | _::"app"::_ -> true
-      | _ -> false in
   try
     let (typedtree, coercion) =
       Pparse.parse_implementation ~tool_name ppf sourcefile
@@ -79,9 +75,7 @@ let implementation ppf sourcefile outputprefix =
           (Typemod.type_implementation sourcefile outputprefix modulename env)
       ++ print_if ppf Clflags.dump_typedtree
         Printtyped.implementation_with_coercion in
-    let app = Extract.doIt ppf typedtree(*if is_app_mod sourcefile 
-              then Some (Extract.doIt ppf typedtree) 
-              else None*) in
+    let app = Extract.doIt ppf typedtree in
     let module KE = Specelab.KE in 
     let module TE = Specelab.TE in
     let module P = Speclang.Predicate in

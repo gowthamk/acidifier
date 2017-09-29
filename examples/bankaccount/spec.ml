@@ -1,8 +1,10 @@
 open Speclang
 module E = Expr
 module P = Predicate
+module S = Set
 open E
 open P
+open S
 
 type txn = Txn of {name: string; 
                    guarantee: Ident.t; 
@@ -19,24 +21,20 @@ let sbal (x) = App (L.get_accessor "sbal", [x])
 let user_account = ??(Ident.create "user_account")
 
 let withdraw_G (st,st') = 
-  Exists ([Type.Loc], 
-          function [l] ->     
-            (?&& [??l @: ??st;
-                  dom_eq(??st',??st);
-                  table(value(??st,??l)) @== user_account;
-                  table(value(??st',??l)) @== user_account; 
-                  id(value(??st',??l)) @== id(value(??st,??l));
-                  sbal(value(??st',??l)) @== sbal(value(??st,??l));
-                  cbal(value(??st',??l)) @>= ConstInt(0);
-                  Forall ([Type.loc], function [l'] ->
-                            (??l' @!= ??l) @=> 
-                                (value(??st',??l') @== value(??st,??l')))]))
-
+  _Exists_Id1 @@ fun i -> 
+    let res = ???st @>>= 
+        fun x -> S.ITE (id(??x) @== ??i, 
+                        S.Lit (fun x' -> 
+                                ?&& [id(??x') @== id(??x);
+                                     sbal(??x') @== sbal(??x);
+                                     cbal(??x') @>= !! 0]),
+                        S.Const [??x])in
+      ???st' @=== res
 
 let deposit_G (st,st') = withdraw_G (st,st')
 
-let save_G (st,st') = 
-  Exists ([Type.Loc], 
+let save_G (st,st') = truee
+  (*Exists ([Type.Rec], 
           function [l] ->     
             (?&& [??l @: ??st;
                   dom_eq(??st',??st);
@@ -47,22 +45,21 @@ let save_G (st,st') =
                   cbal(value(??st',??l)) @>= ConstInt(0);
                   Forall ([Type.loc], function [l'] ->
                             (??l' @!= ??l) @=> 
-                                (value(??st',??l') @== value(??st,??l')))]))
+                                (value(??st',??l') @== value(??st,??l')))])) *)
 
 let inv (st) = 
-  Forall ([Type.Loc], function [l] ->
-        (??l @: ??st) @=>
-            (?&& [cbal(value(??st,??l)) @>= ConstInt(0); 
-                  sbal(value(??st,??l)) @>= ConstInt(0)]))
+  _Forall_St1_Rec1 @@ function (st,r)->
+        (??r @: ??st) @=> ?&& [cbal(??r) @>= !! 0; 
+                               sbal(??r) @>= !! 0]
 
-let basic_axioms () = 
-  Forall ([Type.St; Type.Loc; Type.Loc], 
+let basic_axioms () = truee
+  (*Forall ([Type.St; Type.Rec; Type.Rec], 
          function [st; l1; l2] -> 
            let anteP = (?&& [??l1 @: ??st;
                              ??l2 @: ??st;
                              id(value(??st,??l1)) @== id(value(??st,??l2))]) in 
            let conseqP = ??l1 @== ??l2 in
-             anteP @=> conseqP)
+             anteP @=> conseqP)*)
 
 let _G_w = Ident.create "G_w"
 let _G_d = Ident.create "G_d"
