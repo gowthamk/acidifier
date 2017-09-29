@@ -23,12 +23,12 @@ let user_account = ??(Ident.create "user_account")
 let withdraw_G (st,st') = 
   _Exists_Id1 @@ fun i -> 
     let res = ???st @>>= 
-        fun x -> S.ITE (id(??x) @== ??i, 
-                        S.Lit (fun x' -> 
+        fun x -> SITE (id(??x) @== ??i, 
+                        SLit (fun x' -> 
                                 ?&& [id(??x') @== id(??x);
                                      sbal(??x') @== sbal(??x);
                                      cbal(??x') @>= !! 0]),
-                        S.Const [??x])in
+                        SConst [??x])in
       ???st' @=== res
 
 let deposit_G (st,st') = withdraw_G (st,st')

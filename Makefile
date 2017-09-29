@@ -93,7 +93,7 @@ depend: beforedepend
 alldepend:: depend
 
 clean: partialclean
-	(for d in utils parsing typing driver; \
+	(for d in utils parsing typing driver vcgen; \
 	  do rm -f $$d/*.cm[ioxt] $$d/*.cmti $$d/*.annot $$d/*.[so] $$d/*~; done);
 	rm -f *~
 

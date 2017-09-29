@@ -148,57 +148,107 @@ struct
     | ConstString s -> s
 end
 
-module BasePredicate = 
+type pred = 
+          | BoolExpr of Expr.t 
+          | Eq of Expr.t * Expr.t
+          | GE of Expr.t * Expr.t
+          | LE of Expr.t * Expr.t
+          | Not of pred
+          | And of pred list
+          | Or of pred list
+          | ITE of pred * pred * pred
+          | If of pred * pred 
+          | Iff of pred * pred 
+          | Forall of Type.t list * (Ident.t list -> pred)
+          | Exists of Type.t list * (Ident.t list -> pred)
+          | SEq of set * set
+and set = SConst of Expr.t list (* {1,2}, .. *)
+        | SVar of Ident.t (* x, δ, Δ, ... *)
+        | SLit of (Ident.t -> pred) (* {x | φ} *)
+        | SExists of (Ident.t -> pred * set) (* exists(x,φ,s) *)
+        | SBind of set * (Ident.t -> set) (* s1 »= λx.s2 *)
+        | SITE of pred * set * set (* if φ then s1 else s2 *)
+        | SU of set*set (* s1 ∪ s2 *)
+
+let (fresh_bv,_) = gen_name "bv"
+
+let rec pred_to_string x = 
+  let f = pred_to_string in
+  let g x = "("^(f x)^")" in
+  let h = Expr.to_string in
+    match x with
+    | BoolExpr e -> Expr.to_string e
+    | Eq (e1,e2) -> (h e1)^" = "^(h e2)
+    | GE (e1,e2) -> (h e1)^" ≥ "^(h e2)
+    | LE (e1,e2) -> (h e1)^" ≤ "^(h e2)
+    | Not sv -> "~("^(f sv)^")"
+    | And svs -> "("^(String.concat " && " @@ List.map f svs)^")"
+    | Or svs -> "("^(String.concat " || " @@ List.map f svs)^")"
+    | If (v1,v2) -> (f v1)^" => "^(f v2)
+    | Iff (v1,v2) -> (f v1)^" <=> "^(f v2)
+    | ITE (grd,sv1,sv2) -> (g grd)^"?"^(g sv1)^":"^(g sv2)
+    | Forall (tys,b) -> 
+        let bvtys = List.map 
+                      (fun ty -> (Ident.create @@ fresh_bv (),ty)) tys in
+        let bvty_to_string (bv,ty) = 
+                      (Ident.name bv)^":" ^(Type.to_string ty) in
+        "∀("^(String.concat "," @@ List.map bvty_to_string bvtys)^"). "
+          ^(f @@ b @@ List.map fst bvtys)
+    | Exists (tys,b) -> 
+        let bvtys = List.map 
+                      (fun ty -> (Ident.create @@ fresh_bv (),ty)) tys in
+        let bvty_to_string (bv,ty) = 
+                      (Ident.name bv)^":" ^(Type.to_string ty) in
+        "∃("^(String.concat "," @@ List.map bvty_to_string bvtys)^"). "
+          ^(f @@ b @@ List.map fst bvtys)
+    | SEq (s1,s2) -> (set_to_string s1)^" = "^(set_to_string s2)
+
+and set_to_string t = 
+  let ty = Type.Rec in 
+  let to_string = set_to_string in
+    match t with
+    | SConst l -> "{"^(String.concat "," @@ 
+                       List.map Expr.to_string l)^"}"
+    | SVar x -> Ident.name x
+    | SLit f -> 
+      let bv = Ident.create @@ fresh_bv () in
+        "{ "^(Ident.name bv)^":"^(Type.to_string ty)^" | "
+          ^(pred_to_string @@ f bv)^" }"
+    | SExists f -> 
+      let bv = Ident.create @@ fresh_bv () in
+      let (phi,s) = f bv in 
+        "∃("^(Ident.name bv)^":"^(Type.to_string ty)^" | "
+          ^(pred_to_string phi)^"). "^(to_string s)
+    | SBind (s1,f2) ->
+      let s1str = to_string s1 in
+      let tystr = Type.to_string ty in
+      let bv = Ident.create @@ fresh_bv () in
+      let bvstr = Ident.name bv in
+      let s2str = to_string @@ f2 bv in
+        "("^s1str^") >>= (fun "^bvstr^":"^tystr^" -> "^s2str^")"
+    | SITE (phi,s1,s2) -> (pred_to_string phi)^"? "^(to_string s1)
+                         ^": "^(to_string s2)
+    | SU (s1,s2) -> (to_string s1)^" U "^(to_string s2)
+
+module Predicate = 
 struct
-  (* Will be extended later to include set predicates *)
-  type t = ..
-  type t += 
-    | BoolExpr of Expr.t 
-    | Eq of Expr.t * Expr.t
-    | GE of Expr.t * Expr.t
-    | LE of Expr.t * Expr.t
-    | Not of t
-    | And of t list
-    | Or of t list
-    | ITE of t * t * t
-    | If of t * t 
-    | Iff of t * t 
-    | Forall of Type.t list * (Ident.t list -> t)
-    | Exists of Type.t list * (Ident.t list -> t)
+  (* Reexporting the pred variant type as Predicate.t *)
+  type t = pred = 
+                | BoolExpr of Expr.t 
+                | Eq of Expr.t * Expr.t
+                | GE of Expr.t * Expr.t
+                | LE of Expr.t * Expr.t
+                | Not of pred
+                | And of pred list
+                | Or of pred list
+                | ITE of pred * pred * pred
+                | If of pred * pred 
+                | Iff of pred * pred 
+                | Forall of Type.t list * (Ident.t list -> pred)
+                | Exists of Type.t list * (Ident.t list -> pred)
+                | SEq of set * set
 
-  let (fresh_bv,_) = gen_name "bv"
-
-  let rec to_string x =
-    let f = to_string in
-    let g x = "("^(f x)^")" in
-    let h = Expr.to_string in
-      match x with
-        | BoolExpr e -> Expr.to_string e
-        | Eq (e1,e2) -> (h e1)^" = "^(h e2)
-        | GE (e1,e2) -> (h e1)^" ≥ "^(h e2)
-        | LE (e1,e2) -> (h e1)^" ≤ "^(h e2)
-        | Not sv -> "~("^(f sv)^")"
-        | And svs -> "("^(String.concat " &&\n\t" @@ List.map f svs)^")"
-        | Or svs -> "("^(String.concat " || " @@ List.map f svs)^")"
-        | If (v1,v2) -> (to_string v1)^" => "^(to_string v2)
-        | Iff (v1,v2) -> (to_string v1)^" <=> "^(to_string v2)
-        | ITE (grd,sv1,sv2) -> (g grd)^"?"^(g sv1)^":"^(g sv2)
-        | Forall (tys,f) -> 
-            let bvtys = List.map 
-                          (fun ty -> (Ident.create @@ fresh_bv (),ty)) tys in
-            let bvty_to_string (bv,ty) = 
-                          (Ident.name bv)^":" ^(Type.to_string ty) in
-            "∀("^(String.concat "," @@ List.map bvty_to_string bvtys)^"). "
-              ^(to_string @@ f @@ List.map fst bvtys)
-        | Exists (tys,f) -> 
-            (*let fresh_bv = gen_name "bv" in*)
-            let bvtys = List.map 
-                          (fun ty -> (Ident.create @@ fresh_bv (),ty)) tys in
-            let bvty_to_string (bv,ty) = 
-                          (Ident.name bv)^":" ^(Type.to_string ty) in
-            "∃("^(String.concat "," @@ List.map bvty_to_string bvtys)^"). "
-              ^(to_string @@ f @@ List.map fst bvtys)
-        | _ -> failwith "Predicate.to_string: Unimpl"
+  let to_string = pred_to_string
 
   let conj p1 p2 = match (p1,p2) with
     | (And xs, And ys) -> And (xs@ys)
@@ -218,6 +268,7 @@ struct
   let (@&&) x y = conj x y
   let (@||) x y = disj x y
   let (@==) x y = Eq (x,y)
+  let (@===) s1 s2 = SEq (s1,s2)
   let (@!=) x y = Not (Eq (x,y))
   let (@>=) x y = GE (x,y)
   let (@=>) x y = If (x,y)
@@ -289,58 +340,21 @@ end
 
 module Set = 
 struct
-  module P = BasePredicate
+  (* Reexporting the set variant type as Set.t *)
+  type t = set = SConst of Expr.t list (* {1,2}, .. *)
+               | SVar of Ident.t (* x, δ, Δ, ... *)
+               | SLit of (Ident.t -> pred) (* {x | φ} *)
+               | SExists of (Ident.t -> pred * set) (* exists(x,φ,s) *)
+               | SBind of set * (Ident.t -> set) (* s1 »= λx.s2 *)
+               | SITE of pred * set * set (* if φ then s1 else s2 *)
+               | SU of set*set (* s1 ∪ s2 *)
 
-  type t = Const of Expr.t list (* {1,2}, .. *)
-         | Var of Ident.t (* x, δ, Δ, ... *)
-         | Lit of (Ident.t -> P.t) (* {x | φ} *)
-         | Exists of (Ident.t -> P.t * t) (* exists(x,φ,s) *)
-         | Bind of t * (Ident.t -> t) (* s1 »= λx.s2 *)
-         | ITE of P.t * t * t (* if φ then s1 else s2 *)
-         | U of t*t (* s1 ∪ s2 *)
-
-  let (fresh_bv,_) = gen_name "sv"
-
-  let rec to_string t = let ty = Type.Rec in match t with
-    | Var x -> Ident.name x
-    | Lit f -> 
-      let bv = Ident.create @@ fresh_bv () in
-        "{ "^(Ident.name bv)^":"^(Type.to_string ty)^" | "
-          ^(P.to_string @@ f bv)^" }"
-    | Exists f -> 
-      let bv = Ident.create @@ fresh_bv () in
-      let (phi,s) = f bv in 
-        "∃("^(Ident.name bv)^":"^(Type.to_string ty)^" | "
-          ^(P.to_string phi)^"). "^(to_string s)
-    | Bind (s1,f2) ->
-      let s1str = to_string s1 in
-      let tystr = Type.to_string ty in
-      let bv = Ident.create @@ fresh_bv () in
-      let bvstr = Ident.name bv in
-      let s2str = to_string @@ f2 bv in
-        "("^s1str^") >>= (fun "^bvstr^":"^tystr^" -> "^s2str^")"
-    | ITE (phi,s1,s2) -> (P.to_string phi)^"? "^(to_string s1)
-                         ^": "^(to_string s2)
-    | U (s1,s2) -> (to_string s1)^" U "^(to_string s2)
-
-  let (???) x = Var x
-  let (!!!) l = Const l
-  let (@>>=) s f = Bind (s,f)
-  let (@<+>) s1 s2 = U (s1,s2)
+  let to_string = set_to_string
+  let (???) x = SVar x
+  let (!!!) l = SConst l
+  let (@>>=) s f = SBind (s,f)
+  let (@<+>) s1 s2 = SU (s1,s2)
 end
-
-module Predicate = struct
-  module S = Set
-  include BasePredicate
-
-  type t += SetEq of S.t * S.t
-
-  let to_string = function
-    | SetEq (s1,s2) -> (S.to_string s1)^" = "^(S.to_string s2)
-    | s -> (*BasePredicate.*)to_string s
-
-  let (@===) s1 s2 = SetEq (s1,s2)
-end 
 
 module Isolation = 
 struct
