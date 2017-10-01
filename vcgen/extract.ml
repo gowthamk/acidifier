@@ -3,6 +3,7 @@ open Typedtree
 open App
 open Utils
 open Speclang
+module M = Misc
 
 (* 
  * Extract table names (from table_name type). 
@@ -65,10 +66,10 @@ let extract_txns (str_items) =
     match (vb_pat.pat_desc, vb_expr.exp_desc) with 
       | (Tpat_var (_,loc), Texp_function (_,[case],_)) -> 
           let mk_fun () = 
-            let (args,body) = Misc.extract_lambda case in
+            let (args,body) = Astutils.extract_lambda case in
             let open Types in
             let arrow_t = vb_expr.exp_type.desc in
-            let (arg_ts,res_t) = Misc.uncurry_arrow arrow_t in
+            let (arg_ts,res_t) = Astutils.uncurry_arrow arrow_t in
               Fun.make ~name: (Ident.create loc.txt) 
                    ~rec_flag: rec_flag
                    ~args_t: (List.zip args arg_ts) 

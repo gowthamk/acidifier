@@ -2,6 +2,12 @@ open Utils
 open Types
 open Typedtree
 
+let dprintf = function 
+  | true -> printf
+  | false -> (Printf.ifprintf stdout)
+(* Debug print flags *)
+let _dsubst = ref false;;
+
 module Type = 
 struct
   (* Types of the spec language *)
@@ -122,6 +128,7 @@ struct
     | "id" -> id | "del" -> del | "txn" -> txn (* spl. accessors *)
     | str -> List.assoc str !accessors
   (* Invariants and Relations *)
+  let _I = Ident.create "I"
   let _II = Ident.create "II"
   let _IIr = Ident.create "IIr"
   let _IIc = Ident.create "IIc"
@@ -146,6 +153,17 @@ struct
     | ConstInt i -> string_of_int i
     | ConstBool b -> string_of_bool b
     | ConstString s -> s
+
+  let rec subst (e',x) e = 
+    let f = subst (e',x) in 
+    let _ = (dprintf !_dsubst) "[%s/%s] %s\n" (to_string e') 
+              (Ident.name x) (to_string e) in
+      match e with
+      | Var v -> if Ident.equal v x then e' else e
+      | App (v,exps) -> (match (e', Ident.equal v x) with 
+                          | (Var v', true) -> App (v', List.map f exps)
+                          | _ -> App (v, List.map f exps))
+      | _ -> e
 end
 
 type pred = 
@@ -162,15 +180,18 @@ type pred =
           | Forall of Type.t list * (Ident.t list -> pred)
           | Exists of Type.t list * (Ident.t list -> pred)
           | SEq of set * set
+          | SIn of Expr.t * set
 and set = SConst of Expr.t list (* {1,2}, .. *)
         | SVar of Ident.t (* x, δ, Δ, ... *)
         | SLit of (Ident.t -> pred) (* {x | φ} *)
-        | SExists of (Ident.t -> pred * set) (* exists(x,φ,s) *)
+        | SExists of Type.t * (Ident.t -> pred * set) (* exists(x,φ,s) *)
         | SBind of set * (Ident.t -> set) (* s1 »= λx.s2 *)
         | SITE of pred * set * set (* if φ then s1 else s2 *)
         | SU of set*set (* s1 ∪ s2 *)
 
 let (fresh_bv,_) = gen_name "bv"
+let (fresh_stl,_) = gen_name "δ"
+let (fresh_stg,_) = gen_name "Δ"
 
 let rec pred_to_string x = 
   let f = pred_to_string in
@@ -202,6 +223,7 @@ let rec pred_to_string x =
         "∃("^(String.concat "," @@ List.map bvty_to_string bvtys)^"). "
           ^(f @@ b @@ List.map fst bvtys)
     | SEq (s1,s2) -> (set_to_string s1)^" = "^(set_to_string s2)
+    | SIn (e1,s2) -> (Expr.to_string e1)^" ∈ "^(set_to_string s2)
 
 and set_to_string t = 
   let ty = Type.Rec in 
@@ -214,7 +236,7 @@ and set_to_string t =
       let bv = Ident.create @@ fresh_bv () in
         "{ "^(Ident.name bv)^":"^(Type.to_string ty)^" | "
           ^(pred_to_string @@ f bv)^" }"
-    | SExists f -> 
+    | SExists (ty,f) -> 
       let bv = Ident.create @@ fresh_bv () in
       let (phi,s) = f bv in 
         "∃("^(Ident.name bv)^":"^(Type.to_string ty)^" | "
@@ -229,6 +251,50 @@ and set_to_string t =
     | SITE (phi,s1,s2) -> (pred_to_string phi)^"? "^(to_string s1)
                          ^": "^(to_string s2)
     | SU (s1,s2) -> (to_string s1)^" U "^(to_string s2)
+
+let rec pred_subst (e,x) p = 
+  let f = pred_subst (e,x) in 
+  let _ = dprintf !_dsubst "[%s/%s] %s\n" (Expr.to_string e) 
+            (Ident.name x) (pred_to_string p) in
+    match p with
+    | BoolExpr exp -> BoolExpr (Expr.subst (e,x) exp)
+    | And ps -> And (List.map f ps)
+    | Or ps -> Or (List.map f ps)
+    | Not p -> Not (f p)
+    | Eq (e1,e2) -> Eq (Expr.subst (e,x) e1, Expr.subst (e,x) e2)
+    | GE (e1,e2) -> GE (Expr.subst (e,x) e1, Expr.subst (e,x) e2)
+    | LE (e1,e2) -> LE (Expr.subst (e,x) e1, Expr.subst (e,x) e2)
+    | ITE (p1,p2,p3) -> ITE (f p1, f p2, f p3)
+    | If (p1,p2) -> If (f p1, f p2)
+    | Iff (p1,p2) -> Iff (f p1, f p2)
+    | SEq (s1,s2) -> SEq (set_subst (e,x) s1, set_subst (e,x) s2)
+    | SIn (e1,s2) -> SIn (Expr.subst (e,x) e1, set_subst (e,x) s2)
+    | Exists (tys,g) -> Exists (tys, fun v -> f (g v))
+    | Forall (tys,g) -> Forall (tys, fun v -> f (g v))
+
+and set_subst (e,x) s = 
+  let subst = set_subst in 
+  let _ = dprintf !_dsubst "[%s/%s] %s\n" (Expr.to_string e) 
+            (Ident.name x) (set_to_string s) in
+    match s with
+      | SConst exps -> SConst (List.map (Expr.subst (e,x)) exps)
+      (* Set variable may be let-bound, which we substitute with 
+       * a new variable *)
+      | SVar v -> (match e with | Expr.Var v' -> SVar v' 
+                                | _ -> SVar v)
+      | SLit f -> SLit (fun v -> pred_subst (e,x) (f v))
+      | SBind (s,f) -> 
+        let s' = subst (e,x) s in
+          SBind (s', fun v -> subst (e,x) @@ f v)
+      | SExists (ty,f) -> 
+        SExists(ty, fun v -> let (p,s) = f v in 
+                      (pred_subst (e,x) p, subst (e,x) s))
+      | SITE (p,s1,s2) -> 
+        let p' = pred_subst (e,x) p in
+        let s1' = subst (e,x) s1 in 
+        let s2' = subst (e,x) s2 in 
+          SITE (p', s1', s2')
+      | SU (s1,s2) -> SU (subst (e,x) s1, subst (e,x) s2)
 
 module Predicate = 
 struct
@@ -247,8 +313,13 @@ struct
                 | Forall of Type.t list * (Ident.t list -> pred)
                 | Exists of Type.t list * (Ident.t list -> pred)
                 | SEq of set * set
+                 (* SIn is needed because (@:) only relates
+                  * expressions. *)
+                | SIn of Expr.t * set
 
   let to_string = pred_to_string
+
+  let subst = pred_subst
 
   let conj p1 p2 = match (p1,p2) with
     | (And xs, And ys) -> And (xs@ys)
@@ -287,6 +358,7 @@ struct
     Exists ([Type.Rec], fun [r] -> ?&& [??r @: st;
                                         id(??r) @== i])
   let is_not_in_dom (i,st) = Not (is_in_dom (i,st))
+  let _I (st) = b_app(L._I,[st])
   let _R (st,st') = b_app(L._R,[st;st'])
   let _Rl (stl,stg,stg') = b_app(L._Rl,[stl;stg;stg'])
   let _Rc (stl,stg,stg') = b_app(L._Rc,[stl;stg;stg'])
@@ -336,6 +408,14 @@ struct
     Exists ([Type.Id], 
             function [i] -> f i
                    | _ -> failwith "_Exists_Id1: Unexpected")
+  let _Exists_Rec1 f = 
+    Exists ([Type.Rec], 
+            function [r] -> f r
+                   | _ -> failwith "_Exists_Rec1: Unexpected")
+  let _Exists_St1 f = 
+    Exists ([Type.St], 
+            function [st] -> f st
+                   | _ -> failwith "_Exists_St1: Unexpected")
 end
 
 module Set = 
@@ -344,12 +424,13 @@ struct
   type t = set = SConst of Expr.t list (* {1,2}, .. *)
                | SVar of Ident.t (* x, δ, Δ, ... *)
                | SLit of (Ident.t -> pred) (* {x | φ} *)
-               | SExists of (Ident.t -> pred * set) (* exists(x,φ,s) *)
+               | SExists of Type.t * (Ident.t -> pred * set) (* exists(x,φ,s) *)
                | SBind of set * (Ident.t -> set) (* s1 »= λx.s2 *)
                | SITE of pred * set * set (* if φ then s1 else s2 *)
                | SU of set*set (* s1 ∪ s2 *)
 
   let to_string = set_to_string
+  let subst = set_subst
   let (???) x = SVar x
   let (!!!) l = SConst l
   let (@>>=) s f = SBind (s,f)
@@ -399,97 +480,13 @@ struct
       | SER -> ret (_IIss, _IIss)
 end
 
-module Misc =
-struct
+module StateTransformer = struct
+  type t = (Set.t * Set.t -> Set.t)
 
-  let rec uncurry_arrow = function 
-    (Tarrow (_,typ_expr1,typ_expr2,_)) ->
-      let (ty1,ty2) = (typ_expr1.desc, typ_expr2.desc) in 
-        begin
-          match ty2 with 
-              Tarrow _ -> (fun (x,y) -> (ty1::x,y)) (uncurry_arrow ty2)
-            | _ -> ([ty1],ty2)
-        end
-  | Tlink typ_expr -> uncurry_arrow @@ typ_expr.desc
-  | _ -> failwith "uncurry_arrow called on non-arrow type"
-
-  let to_tye tyd = let open Types in
-    {desc=tyd; level=0; id=0}
-
-  let rec extract_lambda ({c_lhs; c_rhs}) : (Ident.t list * expression)= 
-    let open Asttypes in
-    match (c_lhs.pat_desc, c_rhs.exp_desc) with
-      | (Tpat_var (id,loc), Texp_function (_,[case],_)) -> 
-          let (args,body) = extract_lambda case in
-            (id::args,body)
-      | (Tpat_var (id,loc), _) -> ([id], c_rhs)
-      | (Tpat_alias (_,id,_), Texp_function (_,[case],_) ) -> 
-          let (args,body) = extract_lambda case in
-            (id::args,body)
-      | (Tpat_alias (_,id,loc), _) -> ([id], c_rhs)
-      | _ -> failwith "Unimpl. Specverify.extract_lambda"
-
-  let curry arg_tyds (res_tyd : Types.type_desc) =  
-    let open Types in let open Asttypes in
-    let f tyd = {desc=tyd; level=0; id=0} in
-      List.fold_right (fun arg_tyd arr -> 
-                         Tarrow (Nolabel, f arg_tyd, f arr, Cunknown))
-        arg_tyds res_tyd 
-
-  let mk_tvar_name name_op id = match name_op with
-    | Some a -> a^(string_of_int id)
-    | None -> "tvar("^(string_of_int id)^")"
-
-  let rec unify_tyes binds tye1 tye2 = 
-    let open Types in
-    let (tyd1,tyd2) = (tye1.desc, tye2.desc) in
-    let doIt_list = List.fold_left2 unify_tyes binds in
-    let fail () = 
-      let strf =Format.str_formatter  in
-      begin
-        Format.fprintf strf "Following types cannot be unified:\n";
-        Printtyp.raw_type_expr strf tye1;
-        Format.fprintf strf "\n";
-        Printtyp.raw_type_expr strf tye2;
-        Printf.printf "%s\n" @@ Format.flush_str_formatter ();
-        failwith "Unification failure"
-      end in
-    let assrt b = if b then () else failwith "not unifiable" in
-      match (tyd1,tyd2) with
-        (* 
-         * One of tye1 and tye2 is a concrete type, but we don't
-         * know which one.
-         *)
-        | (Tvar aop, _) | (Tunivar aop, _) 
-        | (_, Tvar aop) | (_, Tunivar aop) -> 
-            let a = mk_tvar_name aop tye1.id in
-              if List.mem_assoc a binds then binds 
-              else (a,tye2)::binds
-        | (Ttuple [tye1],_) -> unify_tyes binds tye1 tye2
-        | (Tarrow (_,tye11,tye12,_), Tarrow (_,tye21,tye22,_)) ->
-            unify_tyes (unify_tyes binds tye11 tye21) tye12 tye22
-        | (Ttuple tyes1, Ttuple tyes2) -> 
-            let _ = assrt (List.length tyes1 = List.length tyes2) in
-              doIt_list tyes1 tyes2
-        | (Tconstr (path1,tyes1,_), Tconstr (path2,tyes2,_)) ->
-            let _ = assrt (Path.same path1 path2) in
-              doIt_list tyes1 tyes2
-        | (Tlink tye1,_) -> unify_tyes binds tye1 tye2
-        | (_, Tlink tye2) -> unify_tyes binds tye1 tye2
-        | (Tarrow _,_) | (_, Tarrow _) | (Ttuple _,_) | (_,Ttuple _)
-        | (Tconstr _,_) | (_,Tconstr _) -> fail ()
-        | _ -> failwith "unify_tyes: Unimpl."
-
-  let unify_tyes tye1 tye2 = 
-    let tyebinds = unify_tyes [] tye1 tye2 in
-    (*let strf = Format.str_formatter in
-    let print_bind (a,tye) = 
-      begin
-        Format.fprintf strf "%s :-> " a;
-        Printtyp.type_expr strf tye;
-        Printf.printf "%s\n" @@ Format.flush_str_formatter ()
-      end in
-    let _ = List.iter print_bind tyebinds in*)
-      tyebinds
-
+  let to_string _F = 
+    let (stl,stg) = (fresh_stl(), fresh_stg ()) in
+    let s = _F (SVar (Ident.create stl), 
+                SVar (Ident.create stg)) in
+      "λ("^stl^","^stg^"). "^(Set.to_string s)
 end
+

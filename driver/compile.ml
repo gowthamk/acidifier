@@ -92,7 +92,7 @@ let implementation ppf sourcefile outputprefix =
                 | _ -> P.to_string phi in
               Printf.printf "%s\n" pstr;
             end in
-    (*let _ = Verify.doIt (ke,te,phi) app (Spec.spec()) in*)
+    let _ = Verify.doIt (ke,te,phi) app (Spec.spec()) in
       if !Clflags.print_types then begin
         Warnings.check_fatal ();
         Stypes.dump (Some (outputprefix ^ ".annot"))

@@ -5,7 +5,6 @@ type txn = Txn of {name: string;
                    iso: Isolation.t}
 
 type t = T of {txns: txn list;
-               invariant: Ident.t;
                asserts: Predicate.t list}
 
 

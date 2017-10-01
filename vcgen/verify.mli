@@ -4,8 +4,7 @@ module P = Speclang.Predicate
 type env = {txn: Ident.t; 
             mutable ke: KE.t; 
             mutable te: TE.t; 
-            mutable phi: P.t; 
-            mutable vcs: Ident.t list;}
+            mutable phi: P.t}
 (*
  * (Θ,Γ,Φ) ⊢ s◀τ
  *)

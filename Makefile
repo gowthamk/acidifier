@@ -9,7 +9,7 @@ YACCFLAGS=-v
 CAMLLEX=ocamllex
 CAMLDEP=ocamlde
 DEPFLAGS=$(INCLUDES)
-COMPFLAGS=-strict-sequence -principal -absname \
+COMPFLAGS=-g -strict-sequence -principal -absname \
           -bin-annot -safe-string -strict-formats $(INCLUDES)
 LINKFLAGS=
 
@@ -60,17 +60,20 @@ default: acidify.opt
 	cp acidify.opt ./examples/acidify
 
 MYFILES=vcgen/utils.cmx vcgen/light_env.cmi vcgen/light_env.cmx \
-				vcgen/speclang.cmx vcgen/spec.cmi examples/bankaccount/spec.cmx \
+				vcgen/speclang.cmx vcgen/spec.cmi \
+				vcgen/astutils.cmi vcgen/astutils.cmx \
+				examples/bankaccount/spec.cmx \
 				vcgen/app.cmx vcgen/extract.cmi vcgen/extract.cmx \
 				vcgen/specelab.cmi vcgen/specelab.cmx \
-				#vcgen/z3encode.cmi vcgen/z3encode.cmx \
+				vcgen/z3encode.cmi vcgen/z3encode.cmx \
 				vcgen/verify.cmi vcgen/verify.cmx \
 				
 
 MYCMX=vcgen/utils.cmx vcgen/light_env.cmx vcgen/speclang.cmx \
-			examples/bankaccount/spec.cmx vcgen/app.cmx vcgen/extract.cmx \
+			vcgen/astutils.cmx examples/bankaccount/spec.cmx vcgen/app.cmx \
+			vcgen/extract.cmx \
 			vcgen/specelab.cmx \
-			#vcgen/z3encode.cmx vcgen/verify.cmx
+			vcgen/z3encode.cmx vcgen/verify.cmx
 
 acidify.byte: $(ALLOBJS)
 	$(CAMLC) $(LINKFLAGS) -custom -o acidify.byte str.cma unix.cma nums.cma $(ALLOBJS)

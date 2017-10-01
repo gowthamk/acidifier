@@ -11,7 +11,6 @@ type txn = Txn of {name: string;
                    iso: Isolation.t}
 
 type t = T of {txns: txn list;
-               invariant: Ident.t;
                asserts: P.t list}
 
 let id (x) = App (L.get_accessor "id", [x])
@@ -64,7 +63,6 @@ let basic_axioms () = truee
 let _G_w = Ident.create "G_w"
 let _G_d = Ident.create "G_d"
 let _G_s = Ident.create "G_s"
-let _I = Ident.create "I"
 
 let spec () =  
   let withdraw_spec = Txn {name="withdraw_txn"; 
@@ -80,12 +78,11 @@ let spec () =
                               function [st; st'] -> 
                                 b_app(_G,[??st; ??st']) @<=> g(st,st')) in
   let define_I () = Forall ([Type.St], 
-                            function [st] -> b_app(_I,[??st]) @<=> inv(st)) in
+                            function [st] -> b_app(L._I,[??st]) @<=> inv(st)) in
   let asserts = [basic_axioms (); 
                  define_G _G_w withdraw_G; 
                  define_G _G_d deposit_G; 
                  define_G _G_s save_G; 
                  define_I ()] in
     T {txns = [withdraw_spec; deposit_spec; save_spec]; 
-       invariant = _I;
        asserts = asserts}
