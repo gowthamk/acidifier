@@ -8,28 +8,56 @@ let dprintf = function
 (* Debug print flags *)
 let _dsubst = ref false;;
 
+(* Types of the spec language *)
+type id
+type set
+type table
+type date
+type record
+type state
+
 module Type = 
 struct
-  (* Types of the spec language *)
-  type t = Any | Int | Bool | String | Unit 
-    | Id | Rec | St | Set | Table | Date
-    | Arrow of t*t | List of t | Tuple of t list
-    | Option of t
 
-  let rec to_string = function Any -> "any"
-    | Int -> "Int" | Bool -> "Bool" | Id -> "Id"
-    | String -> "String" | Unit -> "Unit" 
+  type _ t = 
+    | Any: _ t 
+    | Some : 'a t -> _ t (* encoding an existential *)
+    | Int: int t 
+    | Bool: bool t 
+    | String: string t 
+    | Unit: unit t 
+    | Id: id t 
+    | Rec: record t
+    | St: state t 
+    | Set: set t 
+    | Table: table t 
+    | Date: date t
+    | Arrow: 'a t* 'b t -> ('a -> 'b) t
+    | List: 'a t -> 'a list t
+    | Pair: 'a t * 'b t -> ('a * 'b) t
+    | Triple: 'a t * 'b t * 'c t -> ('a * 'b * 'c) t
+    | Option: 'a t -> 'a option t
+
+  let rec to_string: type a. a t -> string  = function 
+    | Any -> "any" | Int -> "Int" | Bool -> "Bool" 
+    | Id -> "Id" | String -> "String" | Unit -> "Unit" 
     | Table -> "Table" | Date -> "Date"
     | Rec -> "Rec" | St -> "St" | Set -> "Set"
     | Arrow (t1,t2) -> (to_string t1)^" -> "^(to_string t2)
     | List t -> (to_string t)^" list"
-    | Tuple ts -> "("^(String.concat "," @@ List.map to_string ts)^")"
+    | Pair (t1,t2) -> "("^(to_string t1)^","^(to_string t2)^")"
+    | Triple (t1,t2,t3) -> "("^(to_string t1)^","^(to_string t2)
+                           ^","^(to_string t2)^")"
     | Option t -> (to_string t)^" option"
+    | Some t -> to_string t
 
-  let _of str = match str with
-    |"Id" -> Id | "Rec" -> Rec | "St" -> St
-    | "Set" -> Set | "Str" -> String | "Unit" -> Unit
-    | "Table" -> Table | _ -> failwith "Type._of: Unexpected"
+  let _of: string -> _ t  = function
+    |"Id" -> Some Id | "Rec" -> Some Rec | "St" -> Some St
+    | "Set" -> Some Set | "Str" -> Some String | "Unit" -> Some Unit
+    | "Table" -> Some Table | _ -> failwith "Type._of: Unexpected"
+
+  let assert_equal: type a b. a t -> b t -> unit = 
+    fun t1 t2 -> () (* Unimpl. *)
 
   let id = Id
   let table = Table
@@ -40,9 +68,9 @@ end
 
 module Cons = 
 struct
-  type t = T of {name: string; 
-                 recognizer: string; 
-                 args: (string * Type.t) list}
+  type t = T: {name: string; 
+               recognizer: string; 
+               args: (string * 'a Type.t) list} -> t
   let nop = T {name = "NOP";
                recognizer = "isNOP"; 
                args = []}
@@ -76,7 +104,7 @@ struct
         | Variant of Cons.t list (* Cons.t includes a recognizer *)
         | Enum of Ident.t list
         | Extendible of Ident.t list ref
-        | Alias of Type.t
+        | Alias: 'a Type.t -> t
 
   let to_string = function Uninterpreted -> "Uninterpreted type"
     | Variant cons_list -> 
@@ -137,68 +165,77 @@ struct
   let _Rc = Ident.create "Rc"
 end
 
-module Expr = 
-struct
-  type t =
-    | Var of Ident.t
-    | App of Ident.t * t list
-    | ConstInt of int
-    | ConstBool of bool
-    | ConstString of string
+type _ expr = 
+            | Var: Ident.t * 'a Type.t -> 'a expr
+            | App:  Ident.t * 'a expr list * 'b Type.t -> 'b expr
+            | Const: 'a Type.t * 'a -> 'a expr
+            | SConst: record expr list ->  set expr
+            | SLit: (Ident.t -> pred) -> set expr
+            | SExists: 'a Type.t * (Ident.t -> pred * set expr) 
+                          -> set expr (* exists(x,φ,s) *)
+            | SBind: set expr * (Ident.t -> set expr) 
+                          -> set expr (* s1 »= λx.s2 *)
+            | SITE: pred * set expr * set expr 
+                          -> set expr (* if φ then s1 else s2 *)
+            | SU: set expr * set expr -> set expr (* s1 ∪ s2 *)
 
-  let rec to_string x = match x with
-    | Var id -> Ident.name id
-    | App (id,svs) -> (Ident.name id)^"("
-        ^(String.concat "," @@ List.map to_string svs)^")"
-    | ConstInt i -> string_of_int i
-    | ConstBool b -> string_of_bool b
-    | ConstString s -> s
+and pred = 
+          | Expr: bool expr -> pred
+          | Eq: 'a expr * 'a expr -> pred
+          | GE: int expr * int expr -> pred
+          | LE: int expr * int expr -> pred
+          | Not: pred -> pred
+          | And: pred list -> pred
+          | Or: pred list -> pred
+          | ITE: pred * pred * pred -> pred
+          | If: pred * pred -> pred
+          | Iff: pred * pred -> pred
+          | Forall: 'a Type.t * (Ident.t list -> pred) -> pred
+          | Exists: 'a Type.t * (Ident.t list -> pred) -> pred
+          | SIn of record expr * set expr
 
-  let rec subst (e',x) e = 
-    let f = subst (e',x) in 
-    let _ = (dprintf !_dsubst) "[%s/%s] %s\n" (to_string e') 
-              (Ident.name x) (to_string e) in
-      match e with
-      | Var v -> if Ident.equal v x then e' else e
-      | App (v,exps) -> (match (e', Ident.equal v x) with 
-                          | (Var v', true) -> App (v', List.map f exps)
-                          | _ -> App (v, List.map f exps))
-      | _ -> e
-end
-
-type pred = 
-          | BoolExpr of Expr.t 
-          | Eq of Expr.t * Expr.t
-          | GE of Expr.t * Expr.t
-          | LE of Expr.t * Expr.t
-          | Not of pred
-          | And of pred list
-          | Or of pred list
-          | ITE of pred * pred * pred
-          | If of pred * pred 
-          | Iff of pred * pred 
-          | Forall of Type.t list * (Ident.t list -> pred)
-          | Exists of Type.t list * (Ident.t list -> pred)
-          | SEq of set * set
-          | SIn of Expr.t * set
-and set = SConst of Expr.t list (* {1,2}, .. *)
-        | SVar of Ident.t (* x, δ, Δ, ... *)
-        | SLit of (Ident.t -> pred) (* {x | φ} *)
-        | SExists of Type.t * (Ident.t -> pred * set) (* exists(x,φ,s) *)
-        | SBind of set * (Ident.t -> set) (* s1 »= λx.s2 *)
-        | SITE of pred * set * set (* if φ then s1 else s2 *)
-        | SU of set*set (* s1 ∪ s2 *)
-
-let (fresh_bv,_) = gen_name "bv"
+let (fresh_bv,_) = gen_name "κ"
 let (fresh_stl,_) = gen_name "δ"
 let (fresh_stg,_) = gen_name "Δ"
 
-let rec pred_to_string x = 
+let rec expr_to_string: type a. a expr -> string = fun e -> 
+  let to_string = expr_to_string in
+  match e with
+  | Var (id,ty) -> Ident.name id
+  | App (id,svs,res_ty) -> (Ident.name id)^"("
+      ^(String.concat "," @@ List.map to_string svs)^")"
+  | Const (Type.Int, i) -> string_of_int i
+  | Const (Type.Bool, b) -> string_of_bool b
+  | Const (Type.String,s) -> s
+  | Const _ -> failwith "expr_to_string: Unimpl."
+  | SConst recs -> "{"^(String.concat "," @@ 
+                       List.map to_string recs)^"}"
+  | SLit f -> 
+    let bv = Ident.create @@ fresh_bv () in
+      "{ "^(Ident.name bv)^":"^(Type.to_string Type.Rec)^" | "
+        ^(pred_to_string @@ f bv)^" }"
+  | SExists (ty,f) -> 
+    let bv = Ident.create @@ fresh_bv () in
+    let (phi,s) = f bv in 
+      "∃("^(Ident.name bv)^":"^(Type.to_string ty)^" | "
+        ^(pred_to_string phi)^"). "^(to_string s)
+  | SBind (s1,f2) ->
+    let s1str = to_string s1 in
+    let tystr = "Rec" in
+    let bv = Ident.create @@ fresh_bv () in
+    let bvstr = Ident.name bv in
+    let s2str = to_string @@ f2 bv in
+      "("^s1str^") >>= (fun "^bvstr^":"^tystr^" -> "^s2str^")"
+  | SITE (phi,s1,s2) -> (pred_to_string phi)^"? "^(to_string s1)
+                       ^": "^(to_string s2)
+  | SU (s1,s2) -> (to_string s1)^" U "^(to_string s2)
+
+and pred_to_string x = 
   let f = pred_to_string in
   let g x = "("^(f x)^")" in
-  let h = Expr.to_string in
+  let h = expr_to_string in
     match x with
-    | BoolExpr e -> Expr.to_string e
+    | Expr e -> h e
     | Eq (e1,e2) -> (h e1)^" = "^(h e2)
     | GE (e1,e2) -> (h e1)^" ≥ "^(h e2)
     | LE (e1,e2) -> (h e1)^" ≤ "^(h e2)
@@ -208,114 +245,165 @@ let rec pred_to_string x =
     | If (v1,v2) -> (f v1)^" => "^(f v2)
     | Iff (v1,v2) -> (f v1)^" <=> "^(f v2)
     | ITE (grd,sv1,sv2) -> (g grd)^"?"^(g sv1)^":"^(g sv2)
-    | Forall (tys,b) -> 
-        let bvtys = List.map 
-                      (fun ty -> (Ident.create @@ fresh_bv (),ty)) tys in
-        let bvty_to_string (bv,ty) = 
-                      (Ident.name bv)^":" ^(Type.to_string ty) in
-        "∀("^(String.concat "," @@ List.map bvty_to_string bvtys)^"). "
-          ^(f @@ b @@ List.map fst bvtys)
-    | Exists (tys,b) -> 
-        let bvtys = List.map 
-                      (fun ty -> (Ident.create @@ fresh_bv (),ty)) tys in
-        let bvty_to_string (bv,ty) = 
-                      (Ident.name bv)^":" ^(Type.to_string ty) in
-        "∃("^(String.concat "," @@ List.map bvty_to_string bvtys)^"). "
-          ^(f @@ b @@ List.map fst bvtys)
-    | SEq (s1,s2) -> (set_to_string s1)^" = "^(set_to_string s2)
-    | SIn (e1,s2) -> (Expr.to_string e1)^" ∈ "^(set_to_string s2)
+    | Forall (Type.Pair (ty1,ty2),phi) -> 
+        let (bv1,bv2) = (Ident.create @@ fresh_bv (), 
+                         Ident.create @@ fresh_bv ()) in
+        let bvs = [Ident.name bv1; Ident.name bv2] in
+        let tys = [Type.to_string ty1; Type.to_string ty2] in
+        let bvtys = List.map (fun (bv,ty) -> bv^":"^ty) 
+                      @@ List.zip bvs tys in
+        "∀("^(String.concat "," bvtys)^"). " ^(f @@ phi[bv1;bv2])
+    | Forall (Type.Triple (ty1,ty2,ty3),phi) -> 
+        let (bv1,bv2,bv3) = (Ident.create @@ fresh_bv (), 
+                             Ident.create @@ fresh_bv (), 
+                             Ident.create @@ fresh_bv ()) in
+        let bvs = [Ident.name bv1; Ident.name bv2; Ident.name bv3] in
+        let tys = [Type.to_string ty1; Type.to_string ty2; 
+                   Type.to_string ty3] in
+        let bvtys = List.map (fun (bv,ty) -> bv^":"^ty) 
+                      @@ List.zip bvs tys in
+        "∀("^(String.concat "," bvtys)^"). " ^(f @@ phi[bv1;bv2;bv3])
+    | Forall (ty,phi) -> 
+        let bv = Ident.create @@ fresh_bv () in
+        "∀("^(Ident.name bv)^":"^(Type.to_string ty)^"). " 
+            ^(f @@ phi [bv])
+    | Exists (Type.Pair (ty1,ty2),phi) -> 
+        let (bv1,bv2) = (Ident.create @@ fresh_bv (), 
+                         Ident.create @@ fresh_bv ()) in
+        let bvs = [Ident.name bv1; Ident.name bv2] in
+        let tys = [Type.to_string ty1; Type.to_string ty2] in
+        let bvtys = List.map (fun (bv,ty) -> bv^":"^ty) 
+                      @@ List.zip bvs tys in
+        "∃("^(String.concat "," bvtys)^"). " ^(f @@ phi[bv1;bv2])
+    | Exists (Type.Triple (ty1,ty2,ty3),phi) -> 
+        let (bv1,bv2,bv3) = (Ident.create @@ fresh_bv (), 
+                             Ident.create @@ fresh_bv (), 
+                             Ident.create @@ fresh_bv ()) in
+        let bvs = [Ident.name bv1; Ident.name bv2; Ident.name bv3] in
+        let tys = [Type.to_string ty1; Type.to_string ty2; 
+                   Type.to_string ty3] in
+        let bvtys = List.map (fun (bv,ty) -> bv^":"^ty) 
+                      @@ List.zip bvs tys in
+        "∃("^(String.concat "," bvtys)^"). " ^(f @@ phi[bv1;bv2;bv3])
+    | Exists (ty,phi) -> 
+        let bv = Ident.create @@ fresh_bv () in
+        "∃("^(Ident.name bv)^":"^(Type.to_string ty)^"). " 
+            ^(f @@ phi [bv])
+    | SIn (e1,s2) -> (h e1)^" ∈ "^(h s2)
 
-and set_to_string t = 
-  let ty = Type.Rec in 
-  let to_string = set_to_string in
-    match t with
-    | SConst l -> "{"^(String.concat "," @@ 
-                       List.map Expr.to_string l)^"}"
-    | SVar x -> Ident.name x
-    | SLit f -> 
-      let bv = Ident.create @@ fresh_bv () in
-        "{ "^(Ident.name bv)^":"^(Type.to_string ty)^" | "
-          ^(pred_to_string @@ f bv)^" }"
-    | SExists (ty,f) -> 
-      let bv = Ident.create @@ fresh_bv () in
-      let (phi,s) = f bv in 
-        "∃("^(Ident.name bv)^":"^(Type.to_string ty)^" | "
-          ^(pred_to_string phi)^"). "^(to_string s)
-    | SBind (s1,f2) ->
-      let s1str = to_string s1 in
-      let tystr = Type.to_string ty in
-      let bv = Ident.create @@ fresh_bv () in
-      let bvstr = Ident.name bv in
-      let s2str = to_string @@ f2 bv in
-        "("^s1str^") >>= (fun "^bvstr^":"^tystr^" -> "^s2str^")"
-    | SITE (phi,s1,s2) -> (pred_to_string phi)^"? "^(to_string s1)
-                         ^": "^(to_string s2)
-    | SU (s1,s2) -> (to_string s1)^" U "^(to_string s2)
+let rec type_cast: type a b. a expr -> b Type.t -> b expr = 
+  fun e ty' -> match e,ty' with
+    | SConst _, Type.Set -> e
+    | SLit _, Type.Set -> e
+    | SExists (_,_), Type.Set -> e
+    | SBind (_,_), Type.Set -> e
+    | SITE (_,_,_), Type.Set -> e 
+    | SU (_,_), Type.Set -> e
+    | Var (v,ty), _ -> (Type.assert_equal ty ty'; Var (v,ty'))
+    | App (f,args,ty), _ -> (Type.assert_equal ty ty'; App (f,args,ty')) 
+    | Const (Type.Int, c), Type.Int -> e
+    | Const (Type.Bool, c), Type.Bool -> e
+    | Const (Type.String, c), Type.String -> e
+    | _, _ -> failwith "Speclang.type_cast: Error!"
 
-let rec pred_subst (e,x) p = 
-  let f = pred_subst (e,x) in 
-  let _ = dprintf !_dsubst "[%s/%s] %s\n" (Expr.to_string e) 
-            (Ident.name x) (pred_to_string p) in
-    match p with
-    | BoolExpr exp -> BoolExpr (Expr.subst (e,x) exp)
-    | And ps -> And (List.map f ps)
-    | Or ps -> Or (List.map f ps)
-    | Not p -> Not (f p)
-    | Eq (e1,e2) -> Eq (Expr.subst (e,x) e1, Expr.subst (e,x) e2)
-    | GE (e1,e2) -> GE (Expr.subst (e,x) e1, Expr.subst (e,x) e2)
-    | LE (e1,e2) -> LE (Expr.subst (e,x) e1, Expr.subst (e,x) e2)
-    | ITE (p1,p2,p3) -> ITE (f p1, f p2, f p3)
-    | If (p1,p2) -> If (f p1, f p2)
-    | Iff (p1,p2) -> Iff (f p1, f p2)
-    | SEq (s1,s2) -> SEq (set_subst (e,x) s1, set_subst (e,x) s2)
-    | SIn (e1,s2) -> SIn (Expr.subst (e,x) e1, set_subst (e,x) s2)
-    | Exists (tys,g) -> Exists (tys, fun v -> f (g v))
-    | Forall (tys,g) -> Forall (tys, fun v -> f (g v))
+let rec expr_subst: type a b.  a expr * Ident.t -> b expr -> b expr = 
+  fun (e',x) e ->  
+    let g = pred_subst (e',x) in
+    let _ = (dprintf !_dsubst) "[%s/%s] %s\n" (expr_to_string e') 
+              (Ident.name x) (expr_to_string e) in
+      match e with
+      | Var (v,ty) -> if Ident.equal v x 
+                      then type_cast e' ty else e
+      | App (v,exps,res_ty) -> 
+        let exps' = List.map (fun exp -> 
+                                expr_subst (e',x) exp) exps in
+        let (e'': b expr) = match (e', Ident.equal v x) with 
+          | (Var (v',_), true) -> App (v', exps', res_ty) 
+          | _ -> App (v, exps', res_ty) in
+          e''
+      | SConst exps -> 
+          SConst (List.map (fun exp -> 
+                              expr_subst (e',x) exp) exps)
+      | SLit phi -> SLit (fun v -> g (phi v))
+      | SBind (s,bind_f) -> 
+          SBind (expr_subst (e',x) s, 
+                 fun v -> expr_subst (e',x) @@ bind_f v)
+      | SExists (ty,body_f) -> 
+          SExists(ty, fun v -> 
+                        let (p,s) = body_f v in 
+                          (g p, expr_subst (e',x) s))
+      | SITE (p,s1,s2) -> SITE (g p, expr_subst (e',x) s1, 
+                                     expr_subst (e',x) s2)
+      | SU (s1,s2) -> SU (expr_subst (e',x) s1, 
+                          expr_subst (e',x) s2)
+      | _ -> e
 
-and set_subst (e,x) s = 
-  let subst = set_subst in 
-  let _ = dprintf !_dsubst "[%s/%s] %s\n" (Expr.to_string e) 
-            (Ident.name x) (set_to_string s) in
-    match s with
-      | SConst exps -> SConst (List.map (Expr.subst (e,x)) exps)
-      (* Set variable may be let-bound, which we substitute with 
-       * a new variable *)
-      | SVar v -> (match e with | Expr.Var v' -> SVar v' 
-                                | _ -> SVar v)
-      | SLit f -> SLit (fun v -> pred_subst (e,x) (f v))
-      | SBind (s,f) -> 
-        let s' = subst (e,x) s in
-          SBind (s', fun v -> subst (e,x) @@ f v)
-      | SExists (ty,f) -> 
-        SExists(ty, fun v -> let (p,s) = f v in 
-                      (pred_subst (e,x) p, subst (e,x) s))
-      | SITE (p,s1,s2) -> 
-        let p' = pred_subst (e,x) p in
-        let s1' = subst (e,x) s1 in 
-        let s2' = subst (e,x) s2 in 
-          SITE (p', s1', s2')
-      | SU (s1,s2) -> SU (subst (e,x) s1, subst (e,x) s2)
+and pred_subst: type a. a expr * Ident.t -> pred -> pred = 
+  fun (e,x) p -> 
+    let f = pred_subst (e,x) in 
+    let _ = dprintf !_dsubst "[%s/%s] %s\n" (expr_to_string e) 
+              (Ident.name x) (pred_to_string p) in
+      match p with
+      | Expr exp -> Expr (expr_subst (e,x) exp)
+      | And ps -> And (List.map f ps)
+      | Or ps -> Or (List.map f ps)
+      | Not p -> Not (f p)
+      | Eq (e1,e2) -> Eq (expr_subst (e,x) e1, expr_subst (e,x) e2)
+      | GE (e1,e2) -> GE (expr_subst (e,x) e1, expr_subst (e,x) e2)
+      | LE (e1,e2) -> LE (expr_subst (e,x) e1, expr_subst (e,x) e2)
+      | ITE (p1,p2,p3) -> ITE (f p1, f p2, f p3)
+      | If (p1,p2) -> If (f p1, f p2)
+      | Iff (p1,p2) -> Iff (f p1, f p2)
+      | Exists (tys,phi) -> Exists (tys, fun v -> f (phi v))
+      | Forall (tys,phi) -> Forall (tys, fun v -> f (phi v))
+      | SIn (e1,s2) -> SIn (expr_subst (e,x) e1, expr_subst (e,x) s2)
+
+module Expr = 
+struct
+  type 'b t = 'b expr = 
+           | Var: Ident.t * 'b Type.t -> 'b t
+           | App:  Ident.t * 'a expr list * 'b Type.t -> 'b t
+           | Const: 'b Type.t * 'b -> 'b t
+           | SConst: record expr list ->  set t
+           | SLit: (Ident.t -> pred) -> set t
+           | SExists: 'a Type.t * (Ident.t -> pred * set expr) 
+                         -> set t (* exists(x,φ,s) *)
+           | SBind: set t * (Ident.t -> set t) 
+                         -> set t (* s1 »= λx.s2 *)
+           | SITE: pred * set expr * set expr 
+                         -> set t (* if φ then s1 else s2 *)
+           | SU: set expr * set expr -> set t (* s1 ∪ s2 *)
+
+  let to_string = expr_to_string
+
+  let subst = expr_subst
+
+  (* let (??) x = Expr.Var x *)
+  (*let (???) x = SVar x*)
+  let (!!) c = Const(Type.Int,c)
+  let (!!!) recs = SConst recs
+  let (@>>=) s f = SBind (s,f)
+  let (@<+>) s1 s2 = SU (s1,s2)
+end
+
 
 module Predicate = 
 struct
   (* Reexporting the pred variant type as Predicate.t *)
   type t = pred = 
-                | BoolExpr of Expr.t 
-                | Eq of Expr.t * Expr.t
-                | GE of Expr.t * Expr.t
-                | LE of Expr.t * Expr.t
-                | Not of pred
-                | And of pred list
-                | Or of pred list
-                | ITE of pred * pred * pred
-                | If of pred * pred 
-                | Iff of pred * pred 
-                | Forall of Type.t list * (Ident.t list -> pred)
-                | Exists of Type.t list * (Ident.t list -> pred)
-                | SEq of set * set
-                 (* SIn is needed because (@:) only relates
-                  * expressions. *)
-                | SIn of Expr.t * set
+         | Expr: bool expr-> t
+         | Eq: 'a expr * 'a expr-> t
+         | GE: int expr * int expr-> t
+         | LE: int expr * int expr-> t
+         | Not: pred-> t
+         | And: pred list-> t
+         | Or: pred list-> t
+         | ITE: pred * pred * pred-> t
+         | If: pred * pred-> t
+         | Iff: pred * pred-> t
+         | Forall: 'a Type.t * (Ident.t list -> pred)-> t
+         | Exists: 'a Type.t * (Ident.t list -> pred)-> t
+         | SIn of record expr * set expr
 
   let to_string = pred_to_string
 
@@ -331,28 +419,26 @@ struct
     | (Or xs,_) -> Or (xs@[p2])
     | (_,Or ys) -> Or (p1::ys)
     | _ -> Or [p1;p2]
-  let truee = BoolExpr (Expr.ConstBool true)
-  let falsee = BoolExpr (Expr.ConstBool false)
-  let (@:) r s = BoolExpr (Expr.App (L.is_in,[r;s]))(*r∈s*)
+  let truee = Expr (Const(Type.Bool,true))
+  let falsee = Expr (Const(Type.Bool,false))
+  let (@:) r s = Expr (Expr.App (L.is_in,[r;s],Type.Bool))(*r∈s*)
   let (?&&) xs = And xs
   let (?||) xs = Or xs
   let (@&&) x y = conj x y
   let (@||) x y = disj x y
   let (@==) x y = Eq (x,y)
-  let (@===) s1 s2 = SEq (s1,s2)
   let (@!=) x y = Not (Eq (x,y))
   let (@>=) x y = GE (x,y)
   let (@=>) x y = If (x,y)
   let (@<=>) x y = Iff (x,y)
-  let (??) x = Expr.Var x
-  let (!!) c = Expr.ConstInt c
-  let empty_st x = BoolExpr (Expr.App (L.empty_st,[x]))
-  let flush (stl,stg,st) = BoolExpr (Expr.App (L.flush, [stl;stg;st]))
-  let dom_eq (st1,st2) = BoolExpr (Expr.App (L.dom_eq,[st1;st2]))
-  let b_app (bf,args) = BoolExpr(Expr.App (bf,args))
+(*
+  let empty_st x = Expr (Expr.App (L.empty_st,[x]))
+  let flush (stl,stg,st) = Expr (Expr.App (L.flush, [stl;stg;st]))
+  let dom_eq (st1,st2) = Expr (Expr.App (L.dom_eq,[st1;st2]))
+  let b_app (bf,args) = Expr(Expr.App (bf,args))
   let table (x) = Expr.App (L.table, [x]) 
   let id (x) = Expr.App (L.id,[x])
-  let del (x) = BoolExpr (Expr.App (L.del,[x]))
+  let del (x) = Expr (Expr.App (L.del,[x]))
   let txn (x) = Expr.App (L.txn,[x])
   let is_in_dom (i,st) = 
     Exists ([Type.Rec], fun [r] -> ?&& [??r @: st;
@@ -416,27 +502,10 @@ struct
     Exists ([Type.St], 
             function [st] -> f st
                    | _ -> failwith "_Exists_St1: Unexpected")
+*)
 end
 
-module Set = 
-struct
-  (* Reexporting the set variant type as Set.t *)
-  type t = set = SConst of Expr.t list (* {1,2}, .. *)
-               | SVar of Ident.t (* x, δ, Δ, ... *)
-               | SLit of (Ident.t -> pred) (* {x | φ} *)
-               | SExists of Type.t * (Ident.t -> pred * set) (* exists(x,φ,s) *)
-               | SBind of set * (Ident.t -> set) (* s1 »= λx.s2 *)
-               | SITE of pred * set * set (* if φ then s1 else s2 *)
-               | SU of set*set (* s1 ∪ s2 *)
-
-  let to_string = set_to_string
-  let subst = set_subst
-  let (???) x = SVar x
-  let (!!!) l = SConst l
-  let (@>>=) s f = SBind (s,f)
-  let (@<+>) s1 s2 = SU (s1,s2)
-end
-
+(*
 module Isolation = 
 struct
   type t = RC | RR | SI | SER 
@@ -479,14 +548,15 @@ struct
       | SI -> ret (_IIss, _IIww)
       | SER -> ret (_IIss, _IIss)
 end
+*)
 
 module StateTransformer = struct
-  type t = (Set.t * Set.t -> Set.t)
+  type t = (set expr * set expr -> set expr)
 
   let to_string _F = 
     let (stl,stg) = (fresh_stl(), fresh_stg ()) in
-    let s = _F (SVar (Ident.create stl), 
-                SVar (Ident.create stg)) in
-      "λ("^stl^","^stg^"). "^(Set.to_string s)
+    let s = _F (Var (Ident.create stl, Type.Set), 
+                Var (Ident.create stg, Type.Set)) in
+      "λ("^stl^","^stg^"). "^(Expr.to_string s)
 end
 
