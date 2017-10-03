@@ -13,22 +13,21 @@ type txn = Txn of {name: string;
 type t = T of {txns: txn list;
                asserts: P.t list}
 
-let id (x) = App (L.get_accessor "id", [x])
-let cbal (x) = App (L.get_accessor "cbal", [x])
-let sbal (x) = App (L.get_accessor "sbal", [x])
-(* let user_account = App (Ident.create "User_account", [])*)
-let user_account = ??(Ident.create "user_account")
+let id (x) = App (L.get_accessor "id", [x], Type.Id)
+let cbal (x) = App (L.get_accessor "cbal", [x], Type.Int)
+let sbal (x) = App (L.get_accessor "sbal", [x], Type.Int)
+let user_account = Var (Ident.create "user_account", Type.Table)
 
-let withdraw_G (st,st') = 
+let withdraw_G: state expr * state expr -> pred = fun (st,st') ->
   _Exists_Id1 @@ fun i -> 
-    let res = ???st @>>= 
-        fun x -> SITE (id(??x) @== ??i, 
-                        SLit (fun x' -> 
-                                ?&& [id(??x') @== id(??x);
-                                     sbal(??x') @== sbal(??x);
-                                     cbal(??x') @>= !! 0]),
-                        SConst [??x])in
-      ???st' @=== res
+    let res = st @>>= 
+        fun x -> SITE (id(x) @== i, 
+                        _SLit (fun x' -> 
+                                 ?&& [id(x') @== id(x);
+                                      sbal(x') @== sbal(x);
+                                      cbal(x') @>= !! 0]),
+                        SConst [x])in
+      st' @== res
 
 let deposit_G (st,st') = withdraw_G (st,st')
 
@@ -48,8 +47,8 @@ let save_G (st,st') = truee
 
 let inv (st) = 
   _Forall_St1_Rec1 @@ function (st,r)->
-        (??r @: ??st) @=> ?&& [cbal(??r) @>= !! 0; 
-                               sbal(??r) @>= !! 0]
+        (r @: st) @=> ?&& [cbal(r) @>= !! 0; 
+                               sbal(r) @>= !! 0]
 
 let basic_axioms () = truee
   (*Forall ([Type.St; Type.Rec; Type.Rec], 
@@ -74,11 +73,9 @@ let spec () =
   let save_spec = Txn {name="save_txn"; 
                             guarantee=_G_s; 
                             iso=Isolation.RR} in
-  let define_G _G g = Forall ([Type.St; Type.St], 
-                              function [st; st'] -> 
-                                b_app(_G,[??st; ??st']) @<=> g(st,st')) in
-  let define_I () = Forall ([Type.St], 
-                            function [st] -> b_app(L._I,[??st]) @<=> inv(st)) in
+  let define_G _G g = _Forall_St2 @@ fun (st,st') ->
+                            b_app(_G,[st; st']) @<=> g(st,st') in
+  let define_I () = _Forall_St1 @@ fun st -> _I(st) @<=> inv(st)in
   let asserts = [basic_axioms (); 
                  define_G _G_w withdraw_G; 
                  define_G _G_d deposit_G; 

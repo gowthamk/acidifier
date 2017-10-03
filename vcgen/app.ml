@@ -11,7 +11,7 @@ end
 module Tableschema = 
 struct
   type t = T of {name: string;
-                 cols: (string * Type.t) list}
+                 cols: (string * some Type.t) list}
   let make ~name ~cols = T {name=name; cols=cols}
   let print (T{name;cols}) = 
     let cols = List.map (fun (col_n,col_t) -> 

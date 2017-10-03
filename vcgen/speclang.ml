@@ -10,18 +10,18 @@ let _dsubst = ref false;;
 
 (* Types of the spec language *)
 type id
+type some
 type set
 type table
 type date
 type record
-type state
+type state = set (* current both are the same *)
 
-module Type = 
-struct
+module Type = struct
 
   type _ t = 
     | Any: _ t 
-    | Some : 'a t -> _ t (* encoding an existential *)
+    | Some : 'a t -> some t (* encoding an existential *)
     | Int: int t 
     | Bool: bool t 
     | String: string t 
@@ -59,11 +59,7 @@ struct
   let assert_equal: type a b. a t -> b t -> unit = 
     fun t1 t2 -> () (* Unimpl. *)
 
-  let id = Id
-  let table = Table
-  let record = Rec
-  let st = St
-  let set = Set
+  let some t = Some t
 end
 
 module Cons = 
@@ -382,8 +378,10 @@ struct
   (*let (???) x = SVar x*)
   let (!!) c = Const(Type.Int,c)
   let (!!!) recs = SConst recs
-  let (@>>=) s f = SBind (s,f)
+  let (@>>=) s f = SBind (s,fun x -> f @@ Var(x,Type.Rec))
   let (@<+>) s1 s2 = SU (s1,s2)
+  (* The only set literals are those of records. *)
+  let _SLit f = SLit (fun x -> f @@ Var(x,Type.Rec))
 end
 
 
@@ -421,7 +419,7 @@ struct
     | _ -> Or [p1;p2]
   let truee = Expr (Const(Type.Bool,true))
   let falsee = Expr (Const(Type.Bool,false))
-  let (@:) r s = Expr (Expr.App (L.is_in,[r;s],Type.Bool))(*r∈s*)
+  let (@:) r s = SIn (r,s)(*r∈s*)
   let (?&&) xs = And xs
   let (?||) xs = Or xs
   let (@&&) x y = conj x y
@@ -435,14 +433,18 @@ struct
   let empty_st x = Expr (Expr.App (L.empty_st,[x]))
   let flush (stl,stg,st) = Expr (Expr.App (L.flush, [stl;stg;st]))
   let dom_eq (st1,st2) = Expr (Expr.App (L.dom_eq,[st1;st2]))
-  let b_app (bf,args) = Expr(Expr.App (bf,args))
-  let table (x) = Expr.App (L.table, [x]) 
-  let id (x) = Expr.App (L.id,[x])
-  let del (x) = Expr (Expr.App (L.del,[x]))
+*)
+  let b_app (bf,args) = Expr(Expr.App (bf,args,Type.Bool))
+  let table (x) = Expr.App (L.table, [x], Type.Table) 
+  let id (x) = Expr.App (L.id,[x], Type.Id)
+  let del (x) = Expr (Expr.App (L.del, [x], Type.Bool))
+(*
   let txn (x) = Expr.App (L.txn,[x])
+  let empty_st x = Expr (Expr.App (L.empty_st,[x]))
+*)
   let is_in_dom (i,st) = 
-    Exists ([Type.Rec], fun [r] -> ?&& [??r @: st;
-                                        id(??r) @== i])
+    Exists (Type.Rec, fun [r] -> ?&& [Var(r,Type.Rec) @: st;
+                                      id(Var(r,Type.Rec)) @== i])
   let is_not_in_dom (i,st) = Not (is_in_dom (i,st))
   let _I (st) = b_app(L._I,[st])
   let _R (st,st') = b_app(L._R,[st;st'])
@@ -452,48 +454,58 @@ struct
   let _IIc (stl,stg,stg') = b_app(L._IIc,[stl;stg;stg'])
 
   let _Forall_St1 f = 
-    Forall ([Type.St], 
+    Forall (Type.St, 
             fun l -> match l with 
-              | [stl] -> f stl
+              | [st] -> f @@ Var(st,Type.St)
               | _ -> failwith "_Forall_St1: Unexpected")
   let _Forall_St2 f = 
-    Forall ([Type.St; Type.St], 
+    Forall (Type.Pair (Type.St, Type.St), 
             fun l -> match l with 
-              | [stl;stg] -> f(stl,stg) 
+              | [stg;stg'] -> f(Var(stg,Type.St),
+                                Var(stg',Type.St))
               | _ -> failwith "_Forall_St2: Unexpected")
   let _Forall_St3 f = 
-    Forall ([Type.St; Type.St; Type.St], 
+    Forall (Type.Triple (Type.St, Type.St, Type.St), 
             fun l -> match l with 
-              | [stl;stg;stg'] -> f(stl,stg,stg')
+              | [stl;stg;stg'] -> f(Var(stl,Type.St),
+                                    Var(stg,Type.St),
+                                    Var(stg',Type.St))
               | _ -> failwith "_Forall_St3: Unexpected")
+(*
   let _Forall_St4 f = 
     Forall ([Type.St; Type.St; Type.St; Type.St], 
             fun l -> match l with 
               | [st0;st1;st2;st3] -> f(st0,st1,st2,st3) 
               | _ -> failwith "_Forall_St4: Unexpected")
-  let _Forall_Rec1 f = 
-    Forall ([Type.Rec], 
+*)
+  let _Forall_Rec1 (f: record expr -> pred) = 
+    Forall (Type.Rec, 
             fun l -> match l with 
-              | [r] -> f r 
+              | [r] -> f @@ Expr.Var(r,Type.Rec)
               | _ -> failwith "_Forall_Rec1: Unexpected")
-  let _Forall_Rec2 f = 
-    Forall ([Type.Rec; Type.Rec], 
+  let _Forall_Rec2 (f: record expr * record expr -> pred) = 
+    Forall (Type.Pair (Type.Rec, Type.Rec), 
             fun l -> match l with 
-              | [r1;r2] -> f (r1,r2) 
+              | [r1;r2] -> f (Expr.Var(r1,Type.Rec),
+                              Expr.Var(r2,Type.Rec))
               | _ -> failwith "_Forall_Rec2: Unexpected")
   let _Forall_St1_Rec1 f = 
-    Forall ([Type.St; Type.Rec], 
-            function [st;r] -> f (st,r)
+    Forall (Type.Pair (Type.St, Type.Rec), 
+            function [st;r] -> f (Var (st,Type.St), 
+                                  Var(r,Type.Rec))
               | _ -> failwith "_Forall_St1_Rec1: Unexpected")
+(*
   let _Forall_St3_Rec1 f = 
     Forall ([Type.St; Type.St; Type.St; Type.Rec], 
             fun l -> match l with 
               | [stl;stg;stg';r] -> f(stl,stg,stg',r) 
               | _ -> failwith "_Forall_St3_Rec1: Unexpected")
+*)
   let _Exists_Id1 f = 
-    Exists ([Type.Id], 
-            function [i] -> f i
+    Exists (Type.Id, 
+            function [i] -> f (Expr.Var(i,Type.Id))
                    | _ -> failwith "_Exists_Id1: Unexpected")
+(*
   let _Exists_Rec1 f = 
     Exists ([Type.Rec], 
             function [r] -> f r
@@ -505,7 +517,6 @@ struct
 *)
 end
 
-(*
 module Isolation = 
 struct
   type t = RC | RR | SI | SER 
@@ -520,10 +531,10 @@ struct
   (* No write-write conflicts: 
        ∀(r′ ∈ δ)(r ∈ ∆). r.id = r′.id ⇒ r ∈ ∆′ *)
   let _IIww (stl,stg,stg') = _Forall_Rec2 @@
-    fun (r,r') -> ?&& [??r' @: stl; 
-                       ??r @: stg;
-                       id(??r) @== id(??r')]
-                  @=> (??r @: stg')
+    fun (r,r') -> ?&& [r' @: stl; 
+                       r @: stg;
+                       id(r) @== id(r')]
+                  @=> (r @: stg')
   (* Snapshot isolation: ∆′ =∆ *)
   let _IIss (stl,stg,stg') = stg' @== stg
 
@@ -535,20 +546,19 @@ struct
   let spec_of = 
     let ret (spec_r,spec_c) = 
           ?&& [(_Forall_St3 @@ fun (stl,stg,stg') -> 
-                  _IIr(??stl,??stg,??stg') 
-                         @<=> ?&& [_IIm(??stl,??stg,??stg'); 
-                                   spec_r(??stl,??stg,??stg')]); 
+                  _IIr(stl,stg,stg') 
+                         @<=> ?&& [_IIm(stl,stg,stg'); 
+                                   spec_r(stl,stg,stg')]); 
                (_Forall_St3 @@ fun (stl,stg,stg') -> 
-                  _IIc(??stl,??stg,??stg') 
-                         @<=> ?&& [_IIm(??stl,??stg,??stg'); 
-                                   spec_c(??stl,??stg,??stg')])] in
+                  _IIc(stl,stg,stg') 
+                         @<=> ?&& [_IIm(stl,stg,stg'); 
+                                   spec_c(stl,stg,stg')])] in
       function
       | RC -> ret (_II0, _II0)
       | RR -> ret (_IIss, _II0) 
       | SI -> ret (_IIss, _IIww)
       | SER -> ret (_IIss, _IIss)
 end
-*)
 
 module StateTransformer = struct
   type t = (set expr * set expr -> set expr)
