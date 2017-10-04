@@ -64,7 +64,7 @@ MYFILES=vcgen/utils.cmx vcgen/light_env.cmi vcgen/light_env.cmx \
 				vcgen/astutils.cmi vcgen/astutils.cmx \
 				examples/bankaccount/spec.cmx \
 				vcgen/app.cmx vcgen/extract.cmi vcgen/extract.cmx \
-				vcgen/specelab.cmi vcgen/specelab.cmx #\
+				vcgen/specelab.cmi vcgen/specelab.cmx \
 				vcgen/z3encode.cmi vcgen/z3encode.cmx \
 				vcgen/verify.cmi vcgen/verify.cmx \
 				
@@ -72,7 +72,7 @@ MYFILES=vcgen/utils.cmx vcgen/light_env.cmi vcgen/light_env.cmx \
 MYCMX=vcgen/utils.cmx vcgen/light_env.cmx vcgen/speclang.cmx \
 			vcgen/astutils.cmx examples/bankaccount/spec.cmx vcgen/app.cmx \
 			vcgen/extract.cmx \
-			vcgen/specelab.cmx #\
+			vcgen/specelab.cmx \
 			vcgen/z3encode.cmx vcgen/verify.cmx
 
 acidify.byte: $(ALLOBJS)

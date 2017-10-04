@@ -23,6 +23,7 @@ module Expr = Z3.Expr
 module Constructor = Z3.Datatype.Constructor
 module P = Speclang.Predicate
 
+(*
 let mk_new_ctx () = 
   let cfg = [("model", "true"); ("proof", "false")] in
     mk_context cfg
@@ -285,9 +286,9 @@ let setup (ke,te,phi) =
       Printf.printf "\n*********************\n";
       flush_all ();
     end
-
-let doIt (ke,te,phi) vcs = 
-  if not (Log.open_ "z3.log") then
+*)
+let doIt (ke,te,phi) vcs = failwith "Unimpl."
+  (*if not (Log.open_ "z3.log") then
     failwith "Log couldn't be opened."
   else
     let _ = setup (ke,te,phi) in
@@ -303,4 +304,4 @@ let doIt (ke,te,phi) vcs =
       reset ();
       Gc.full_major ();
       true
-    end
+    end*)

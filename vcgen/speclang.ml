@@ -59,8 +59,9 @@ module Type = struct
   let assert_equal: type a b. a t -> b t -> unit = 
     fun t1 t2 -> () (* Unimpl. *)
 
-  let some t = Some t
 end
+
+type some_type = SomeType: 'a Type.t -> some_type
 
 module Cons = 
 struct
@@ -164,6 +165,7 @@ end
 type _ expr = 
             | Var: Ident.t * 'a Type.t -> 'a expr
             | App:  Ident.t * 'a expr list * 'b Type.t -> 'b expr
+            | App2:  Ident.t * some_expr list * 'b Type.t -> 'b expr
             | Const: 'a Type.t * 'a -> 'a expr
             | SConst: record expr list ->  set expr
             | SLit: (Ident.t -> pred) -> set expr
@@ -174,6 +176,8 @@ type _ expr =
             | SITE: pred * set expr * set expr 
                           -> set expr (* if φ then s1 else s2 *)
             | SU: set expr * set expr -> set expr (* s1 ∪ s2 *)
+
+and some_expr = SomeExpr: 'a expr -> some_expr
 
 and pred = 
           | Expr: bool expr -> pred
@@ -200,6 +204,9 @@ let rec expr_to_string: type a. a expr -> string = fun e ->
   | Var (id,ty) -> Ident.name id
   | App (id,svs,res_ty) -> (Ident.name id)^"("
       ^(String.concat "," @@ List.map to_string svs)^")"
+  | App2 (id,some_exps,res_ty) -> (Ident.name id)^"("
+      ^(String.concat "," @@ List.map 
+          (fun (SomeExpr e) -> to_string e) some_exps)^")"
   | Const (Type.Int, i) -> string_of_int i
   | Const (Type.Bool, b) -> string_of_bool b
   | Const (Type.String,s) -> s
@@ -296,7 +303,10 @@ let rec type_cast: type a b. a expr -> b Type.t -> b expr =
     | SITE (_,_,_), Type.Set -> e 
     | SU (_,_), Type.Set -> e
     | Var (v,ty), _ -> (Type.assert_equal ty ty'; Var (v,ty'))
-    | App (f,args,ty), _ -> (Type.assert_equal ty ty'; App (f,args,ty')) 
+    | App (f,args,ty), _ -> (Type.assert_equal ty ty'; 
+                             App (f,args,ty')) 
+    | App2 (f,sargs,ty), _ -> (Type.assert_equal ty ty'; 
+                               App2 (f,sargs,ty')) 
     | Const (Type.Int, c), Type.Int -> e
     | Const (Type.Bool, c), Type.Bool -> e
     | Const (Type.String, c), Type.String -> e
@@ -316,6 +326,13 @@ let rec expr_subst: type a b.  a expr * Ident.t -> b expr -> b expr =
         let (e'': b expr) = match (e', Ident.equal v x) with 
           | (Var (v',_), true) -> App (v', exps', res_ty) 
           | _ -> App (v, exps', res_ty) in
+          e''
+      | App2 (v,some_exps,res_ty) -> 
+        let some_exps' = List.map (fun (SomeExpr exp) -> 
+                      SomeExpr (expr_subst (e',x) exp)) some_exps in
+        let (e'': b expr) = match (e', Ident.equal v x) with 
+          | (Var (v',_), true) -> App2 (v', some_exps', res_ty) 
+          | _ -> App2 (v, some_exps', res_ty) in
           e''
       | SConst exps -> 
           SConst (List.map (fun exp -> 
@@ -359,6 +376,7 @@ struct
   type 'b t = 'b expr = 
            | Var: Ident.t * 'b Type.t -> 'b t
            | App:  Ident.t * 'a expr list * 'b Type.t -> 'b t
+           | App2:  Ident.t * some_expr list * 'b Type.t -> 'b t
            | Const: 'b Type.t * 'b -> 'b t
            | SConst: record expr list ->  set t
            | SLit: (Ident.t -> pred) -> set t
@@ -374,6 +392,8 @@ struct
 
   let subst = expr_subst
 
+  let type_cast = type_cast
+
   (* let (??) x = Expr.Var x *)
   (*let (???) x = SVar x*)
   let (!!) c = Const(Type.Int,c)
@@ -381,7 +401,14 @@ struct
   let (@>>=) s f = SBind (s,fun x -> f @@ Var(x,Type.Rec))
   let (@<+>) s1 s2 = SU (s1,s2)
   (* The only set literals are those of records. *)
+  let _SConst rs = SConst rs
   let _SLit f = SLit (fun x -> f @@ Var(x,Type.Rec))
+  let _SExists ty f = SExists (ty, fun x -> f @@ Var (x,ty))
+  let _SBind s f = SBind (s, fun x -> f @@ Var(x,Type.Rec))
+  let table_name s = Var (Ident.create s, Type.Table)
+  let record (x) = Var (x,Type.Rec) 
+  let var (x,ty) = Var (x,ty)
+                   
 end
 
 
@@ -505,15 +532,15 @@ struct
     Exists (Type.Id, 
             function [i] -> f (Expr.Var(i,Type.Id))
                    | _ -> failwith "_Exists_Id1: Unexpected")
+  let _Exists_St1 f = 
+    Exists (Type.St, 
+            function [st] -> f (Expr.Var(st,Type.St))
+                   | _ -> failwith "_Exists_St1: Unexpected")
 (*
   let _Exists_Rec1 f = 
     Exists ([Type.Rec], 
             function [r] -> f r
                    | _ -> failwith "_Exists_Rec1: Unexpected")
-  let _Exists_St1 f = 
-    Exists ([Type.St], 
-            function [st] -> f st
-                   | _ -> failwith "_Exists_St1: Unexpected")
 *)
 end
 

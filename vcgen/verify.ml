@@ -4,22 +4,27 @@ open Typedtree
 open Speclang
 open Specelab
 module P = Predicate
-module S = Set
 module E = Expr
 module F = StateTransformer
 module Z3E = Z3encode
 open P
-open S
+open E
+
 
 module VE = Light_env.Make(struct 
-                             include Speclang.Expr 
+                             type t = some_expr
+                             let to_string = function
+                               | SomeExpr e -> E.to_string e
+                               | _ -> failwith "VE.S.to_string: impossible!"
                            end)
 
 type env = {txn: Ident.t; 
             mutable ke: KE.t; 
-            mutable te: TE.t; 
+            mutable te: TE.t;
+            mutable ve: VE.t;
             mutable phi: P.t}
 
+let some t = SomeType t 
 let printf = Printf.printf
 let sprintf = Printf.sprintf
 let ppf = Format.std_formatter
@@ -47,42 +52,67 @@ let print_env env =
     printf "%s\n" @@ P.to_string env.phi;
   end
 
- let rec type_of_tye ke (tye : type_expr) = 
+ let rec type_of_tye ke (tye : type_expr) : some_type= 
   let open Path in
   let ppf = Format.std_formatter in
   let strf = Format.str_formatter in
   (*let _ = Printtyp.type_expr strf tye in
   let _ = printf "of_tye(%s)\n" @@ 
             Format.flush_str_formatter () in*)
+  (* Higher-rank polymorphism is needed to realize this:
+  let f: type b. type_expr -> (type a. a Type.t -> b Type.t) 
+        -> b Type.t =
+      fun tye g -> let SomeType t = type_of_tye ke tye 
+                     in g t in *)
   let f = type_of_tye ke in 
+  let open Type in 
+  let is_table_name str = 
+    try
+      match KE.find_name (Type.to_string Table) ke with
+      | Kind.Variant cons -> List.exists (fun c -> 
+                                Cons.name c = str) cons
+      | _ -> false 
+    with Not_found -> false in
     match tye.desc with
     | Tvar aop -> 
-      let a_name = Astutils.mk_tvar_name aop tye.id in
-      (*let _ = printf "type_of_tye(%s)\n" a_name in*)
-      let msg = sprintf "Kind of %s not found" a_name in
-      let knd = try KE.find_name a_name ke 
-                with Not_found -> not_found msg in
-        (match knd with | Kind.Alias typ -> typ
-          | _ -> failwith "type_of_tye: Unexpected")
-    | Tarrow (_,te1,te2,_) -> Type.Arrow (f te1, f te2)
-    | Ttuple tes -> Type.Tuple (List.map f tes)
+        let a_name = Astutils.mk_tvar_name aop tye.id in
+        let msg = sprintf "Kind of %s not found" a_name in
+        let knd = try KE.find_name a_name ke 
+                  with Not_found -> not_found msg in
+          (match knd with | Kind.Alias typ -> SomeType typ
+            | _ -> failwith "type_of_tye: Unexpected")
+    | Tarrow (_,te1,te2,_) -> 
+        let (SomeType t1, SomeType t2) = (f te1, f te2) in
+          SomeType (Arrow (t1, t2))
+    | Ttuple [te1;te2] -> 
+        let (SomeType t1, SomeType t2) = (f te1, f te2) in
+          SomeType (Pair (t1,t2))
+    | Ttuple [te1;te2;te3] -> 
+        let (SomeType t1, SomeType t2, SomeType t3) = 
+            (f te1, f te2, f te3) in
+          SomeType (Triple (t1,t2,t3))
     | Tconstr (Pdot (Pident id,"t",_),[te],_) 
-      when (Ident.name id = "List") -> Type.List (f te)
+      when (Ident.name id = "List") -> 
+        let SomeType t = f te in SomeType (List t)
     | Tconstr (Pident id,[te],_) 
-      when (Ident.name id = "list") -> Type.List (f te)
+      when (Ident.name id = "list") -> 
+        let SomeType t = f te in SomeType (List t)
     | Tconstr (Pident id,[te],_) 
-      when (Ident.name id = "option") -> Type.Option (f te)
+      when (Ident.name id = "option") -> 
+        let SomeType t = f te in SomeType (Option t)
     | Tconstr (Pident id,[],_) 
-      when (Ident.name id = "string") -> Type.String
+      when (Ident.name id = "string") -> SomeType (String)
     | Tconstr (Pident id,[],_) 
-      when (Ident.name id = "int") -> Type.Int
+      when (Ident.name id = "int") -> SomeType (Int)
     | Tconstr (Pident id,[],_) 
-      when (Ident.name id = "bool") -> Type.Bool
+      when (Ident.name id = "bool") -> SomeType (Bool)
     | Tconstr (Pident id,[],_) 
-      when (Ident.name id = "unit") -> Type.Unit
+      when (Ident.name id = "unit") -> SomeType (Unit)
     | Tconstr (Pident id,[],_) 
-      when (Ident.name id = "id") -> Type.Id
+      when (Ident.name id = "id") -> SomeType (Id)
     | Tlink te -> f te
+    | Tconstr (Pident id,[],_) 
+      when (is_table_name @@ Ident.name id) -> SomeType (Rec)
     | Tconstr (Pdot (Pident id,s,_),[],_)  ->
         let _ = Printf.printf "Unknown Tconstr %s.%s\n" 
                   (Ident.name id) s in
@@ -100,17 +130,20 @@ let _assert env phi =
   env.phi <- env.phi @&& phi
 
 
+(*
 let stability_asn _R (_stableQ,_Q) = 
-  BoolExpr(??_stableQ) 
-      @<=> Forall ([Type.St; Type.St; Type.St], fun [stl;stg;stg'] -> 
+  Expr(_stableQ) 
+      @<=> _Forall_St3 @@ fun (stl,stg,stg') ->
                       ?&& [b_app(_Q,[??stl;??stg]);
                            b_app(_R,[??stl;??stg;??stg'])]
-                  @=> b_app(_Q,[??stl;??stg']))
+                  @=> b_app(_Q,[??stl;??stg'])
 
 let read_stability_asn = stability_asn L._Rl
 let commit_stability_asn = stability_asn L._Rc
+*)
 
-let rec expr_to_native (ve:VE.t) (exp:Typedtree.expression) : Expr.t = 
+let rec expr_to_native env (exp:Typedtree.expression)
+    : some_expr = 
   let open Expr in 
   match exp.exp_desc with
     (* id *)
@@ -118,65 +151,89 @@ let rec expr_to_native (ve:VE.t) (exp:Typedtree.expression) : Expr.t =
         let names = Path.all_names path in
         let name = String.concat "." names in
           begin
-            try ??(List.assoc name pervasives)
+            try VE.find_name name env.ve
             with Not_found -> 
-              try VE.find_name name ve
-              with Not_found -> 
-                ??(Ident.create name)
+              try let SomeType t = TE.find_name name env.te in
+                  SomeExpr (var (Ident.create name, t))
+              with Not_found ->
+                failwith @@ "Unknown identifier: "^name
           end
     (* constant *)
     | Texp_constant const ->
         let open Asttypes in 
           (match const with 
-             | Const_int i -> (ConstInt i)
-             | Const_string (s, None) -> (ConstString s)
-             | Const_string (s, Some s') -> (ConstString (s^s'))
+             | Const_int i -> SomeExpr (Const(Type.Int,i))
+             | Const_string (s, None) -> 
+                  SomeExpr (Const(Type.String,s))
+             | Const_string (s, Some s') -> 
+                  SomeExpr (Const(Type.String,s^s'))
              | _ -> failwith "Texp_constant Unimpl.")
     (* native fn application *)
-    | Texp_apply (e1, largs) ->
-        let pf = match expr_to_native ve e1 with 
-          | Var id -> id | _ -> failwith "expr_to_native: Unexpected" in 
+    | Texp_apply ({exp_desc=Texp_ident (path,_,_)}, largs) ->
+        let names = Path.all_names path in
+        let name = String.concat "." names in
+        let op_id = List.assoc name pervasives in
         let e2s = map_snd_opts largs in
-        let pargs = List.map (expr_to_native ve) e2s in
-          App (pf,pargs)
+        let nes = List.map (expr_to_native env) e2s in
+        let SomeType ty = type_of_tye env.ke exp.exp_type in
+          SomeExpr (App2 (op_id,nes,ty))
     (* record field access *)
     | Texp_field (e1,_,ld) -> 
-        let pe1 = expr_to_native ve e1 in 
+        let SomeExpr pe1 = expr_to_native env e1 in 
         (* ld must be one of the known accessors *)
         let accessor_id = L.get_accessor ld.lbl_name in
-          App (accessor_id,[pe1])
-    | Texp_setfield ({exp_desc=Texp_ident (path,x,y)} as e1,loc,ld,e2) -> 
+        let SomeType ty = type_of_tye env.ke exp.exp_type in
+          SomeExpr (App (accessor_id,[pe1],ty))
+    | Texp_setfield ({exp_desc=Texp_ident (path,x,y)} as e1, 
+                     loc,ld, e2) -> 
         (* We let x' denote x in the new state. *)
         let new_id = Ident.create @@ (Path.last path)^"'" in
-        let id_exp = {e1 with exp_desc=Texp_ident(Path.Pident new_id,x,y)} in
+        let id_exp = {e1 with exp_desc = 
+                                Texp_ident(Path.Pident new_id,x,y)} in
         let e1' = {e1 with exp_desc=Texp_field(id_exp,loc,ld)} in
-        let ne1 = expr_to_native ve e1' in
-        let ne2 = expr_to_native ve e2 in
-          App (L.eq, [ne1;ne2])
-    (* e1;e2 *)
+        let SomeExpr (App (_,_,t1) as ne1) = expr_to_native env e1' in
+        let SomeExpr ne2 = expr_to_native env e2 in
+          SomeExpr (App (L.eq, [ne1; Expr.type_cast ne2 t1],
+                         Type.Bool))
+    (* a sequence of setfields *)
     | Texp_sequence (e1,e2) ->
-        let ne1 = expr_to_native ve e1 in
-        let ne2 = expr_to_native ve e2 in
-          (match ne2 with 
-            | App (op,ne2s) when op = L.andd -> App (L.andd, ne1::ne2s)
-            | _ -> App (L.andd,[ne1;ne2]))
+        let SomeExpr ne1 = expr_to_native env e1 in
+        let SomeExpr ne2 = expr_to_native env e2 in
+          (match ne1, ne2 with 
+            | App (_,_,Type.Bool), App (op,ne2s,Type.Bool) 
+              when op = L.andd -> 
+                let ne2s' = List.map (fun e -> Expr.type_cast e
+                                         Type.Bool) ne2s in
+                SomeExpr (App (L.andd, ne1::ne2s', Type.Bool))
+            | App (_,_,Type.Bool), App (_,_,Type.Bool) -> 
+                SomeExpr (App (L.andd, [ne1; ne2], Type.Bool))
+            | _ -> failwith "expr_to_native: Unexpected")
     | _ -> failwith "expr_to_native: Unimpl."
 
-let rec native_to_pred native_exp = 
+let rec native_to_pred: bool expr -> pred = fun native_exp ->
   let open Ident in 
   let open Expr in 
   let open Predicate in 
-  let f = native_to_pred in
+  let f e = native_to_pred @@ type_cast e Type.Bool in
+  let to_int e = type_cast e Type.Int in
     match native_exp with
-      | App ({name},nes) when (name = Ident.name L.andd) -> And(List.map f nes)
-      | App ({name},nes) when (name = Ident.name L.orr) -> Or (List.map f nes)
-      | App ({name},[ne]) when (name = Ident.name L.nott) -> Not (f ne)
-      | App ({name},[ne1;ne2]) when (name = Ident.name L.eq) -> Eq (ne1,ne2)
-      | App ({name},[ne1;ne2]) when (name = Ident.name L.le) -> LE (ne1,ne2)
-      | App ({name},[ne1;ne2]) when (name = Ident.name L.ge) -> GE (ne1,ne2)
-      | _ -> BoolExpr native_exp 
+      | App ({name},nes,_) when (name = Ident.name L.andd) -> 
+          And (List.map f nes)
+      | App ({name},nes,_) when (name = Ident.name L.orr) -> 
+          Or (List.map f nes)
+      | App ({name},[ne],_) when (name = Ident.name L.nott) -> 
+          Not (f ne)
+      | App ({name},[ne1;ne2],_) when (name = Ident.name L.eq) -> 
+          Eq (ne1,ne2)
+      | App ({name},[ne1;ne2],_) when (name = Ident.name L.le) -> 
+          LE (to_int ne1, to_int ne2)
+      | App ({name},[ne1;ne2],_) when (name = Ident.name L.ge) -> 
+          GE (to_int ne1, to_int ne2)
+      | _ -> Expr native_exp
 
-let expr_to_pred ve exp = native_to_pred @@ expr_to_native ve exp
+let expr_to_pred env exp = 
+  let SomeExpr ne = expr_to_native env exp in
+    native_to_pred @@ Expr.type_cast ne Type.Bool
 
 let stabilize env (_F:F.t)= 
   let _ = printf "--- to stabilize: %s\n" @@ F.to_string _F in
@@ -198,30 +255,31 @@ let rec doIt_letexp env (x,tye) (e1:expression) (e2:expression) : F.t =
              Texp_function (arg_label,[case],_)) -> 
               let _ = printf "SQL.select1\n" in
               (* Predicate describing the record read. *)
-              let phi stg r = 
+              let pred stg r = 
                 (* Δ satisfies I *)
-                let inv_pred = _I()
+                let inv_pred = _I(stg) in
                 (* r belongs to Δ *)
                 let belongs_pred = SIn (r,stg) in
                 (* r meets the search criterion... *)
                 let ([arg_id],body) = Astutils.extract_lambda case in
-                let ve = VE.add arg_id r VE.empty in 
-                let select_pred = expr_to_pred ve body in 
+                let env' = {env with ve = VE.add arg_id 
+                                         (SomeExpr r) VE.empty} in 
+                let select_pred = expr_to_pred env' body in 
                 (* ... and r belongs to table t *)
-                let t = Ident.create @@ String.lowercase_ascii @@ 
+                let t = Expr.table_name @@ String.lowercase_ascii @@ 
                           table_cons.cstr_name in
-                let table_pred = table(r) @== ??t in
+                let table_pred = table(r) @== t in
                   ?&& [belongs_pred; table_pred; select_pred] in
               (* Analyze e2 assuming  x: { ν:Rec | ∃Δ. Φ(Δ,v)} *)
-              let te' = TE.add x Type.Rec env.te in
+              let te' = TE.add x (some Type.Rec) env.te in
+              let x_rec = Expr.record x in
               let phi' = P.conj env.phi 
-                            (_Exists_St1 @@ fun stg -> phi ???stg ??x) in
+                            (_Exists_St1 @@ fun stg -> pred stg x_rec) in
               let _F2 = doIt_exp {env with te=te'; phi=phi'} e2 in
               (* λ(δ.Δ). exists(x', phi(x'), [x'/x] F2(δ,Δ))*)
-              let _F(stl,stg) = 
-                SExists (Type.Rec, fun x' -> 
-                                    (phi stg ??x', S.subst (??x',x) 
-                                                 @@ _F2(stl,stg))) in
+              let _F(stl,stg) = _SExists Type.Rec @@ 
+                                  fun x' -> (pred stg x', expr_subst (x',x) 
+                                                 @@ _F2(stl,stg)) in
               let stable_F = stabilize env _F in
                 stable_F
           | (Texp_construct (_,{cstr_name="::"},args), _) ->
@@ -246,7 +304,7 @@ and doIt_exp env (exp:Typedtree.expression) =
         let _F(stl,stg) = _F1(stl,stg) @<+> _F2(stl,stg) in
           _F
     | Texp_ifthenelse (grd_e,e1,Some e2) -> 
-        let phi = expr_to_pred VE.empty grd_e in
+        let phi = expr_to_pred env grd_e in
         let _F1 = doIt_exp env e1 in
         let _F2 = doIt_exp env e2 in
         let _F(stl,stg) = SITE(phi, _F1(stl,stg), _F2(stl,stg)) in
@@ -261,31 +319,33 @@ and doIt_exp env (exp:Typedtree.expression) =
              Texp_function (_,[w_case],_)) (* WHERE function f *) -> 
               let _ = printf "SQL.update table_name g f\n" in
               (* t is the table being updated *)
-              let t = Ident.create @@ String.lowercase_ascii @@ 
+              let t = table_name @@ String.lowercase_ascii @@ 
                         table_cons.cstr_name in
               (* Predicate describing the record updated. *)
               let phi r = 
                 (* r meets the search criterion... *)
                 let ([y],e2) = Astutils.extract_lambda w_case in
-                let where_pred = expr_to_pred 
-                                (VE.add y r VE.empty) e2 in 
+                let env' = {env with ve=VE.add y 
+                                         (SomeExpr r) env.ve} in
+                let where_pred = expr_to_pred env' e2 in 
                 (* ... and r belongs to table t *)
-                let table_pred = table(r) @== ??t in
+                let table_pred = table(r) @== t in
                   ?&& [table_pred; where_pred] in
               (* Predicate describing the updataion *)
               let (<~) r' r = 
                 (*  r' is updated version of r... *)
                 let ([x],e1) = Astutils.extract_lambda s_case in
                 let x' = Ident.create @@ (Ident.name x)^"'" in
-                let upd_pred = expr_to_pred (VE.add x' r' @@ 
-                                             VE.add x r VE.empty) e1 in 
+                let env' = {env with ve = VE.add x' (SomeExpr r') @@ 
+                                      VE.add x (SomeExpr r) env.ve} in
+                let upd_pred = expr_to_pred env' e1 in 
                 (* ... but r and r' both belongs to the same table *)
                 let table_pred = table(r') @== table(r) in
                   ?&& [table_pred; upd_pred] in
-              let bind_f r = SITE(phi(??r), 
-                                  SLit (fun r' -> ??r' <~ ??r),
-                                  SConst [??r]) in
-              let _F(stl,stg) = SBind (stg,bind_f) in
+              let bind_f r = SITE(phi(r), 
+                                  _SLit (fun r' -> r' <~ r),
+                                  _SConst [r]) in
+              let _F(stl,stg) = _SBind stg bind_f in
               let stable_F = stabilize env _F in
                 stable_F (* compile and see *)
           | _ -> failwith "doIt_exp: SQL.update impossible case"
@@ -353,7 +413,7 @@ let doIt (ke,te,phi) (App.T app) (Spec.T spec) =
   let txns = [List.hd @@ List.rev app.txns] in
   let _ = List.iter (fun txn -> 
                        let env = {txn=Fun.name txn; ke=ke; 
-                                  te=te; phi=phi} in
+                                  te=te; phi=phi; ve=VE.empty} in
                          doIt_txn env txn (spec_of_txn txn)) txns in
     failwith "Unimpl."
 

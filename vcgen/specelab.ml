@@ -3,16 +3,17 @@ open Speclang
 
 module KE = Light_env.Make(struct include Kind end)
 module TE = Light_env.Make(struct 
-                            type t = some Type.t
+                            type t = some_type
                             let to_string = function
-                              | Type.Some t -> Type.to_string t
-                              | _ -> failwith "TE.S.to_string: Unexpected!"
+                              | SomeType t -> Type.to_string t
                            end)
 module P = Predicate
 module K = Kind
 module T = Type
 
 let (<<) f g x = f(g x)
+
+let some t = SomeType t
 
 let mk_nullary_cons name : Cons.t = 
   let recognizer = "is"^name in
@@ -74,9 +75,9 @@ let bootstrap (App.T {schemas; txns}) =
    *     TE[c_name :-> Type.record -> Type.String]*)
   let cols = List.concat @@ List.map Tableschema.cols schemas in
   let accessors = List.map 
-                    (fun (col_name,Type.Some col_typ) -> 
+                    (fun (col_name,SomeType col_typ) -> 
                        (Ident.create col_name,
-                        Type.some @@ Type.Arrow (Type.Rec,col_typ))) 
+                        some @@ Type.Arrow (Type.Rec,col_typ))) 
                     cols in
   let _ = L.set_accessors @@ List.map fst accessors in
   (* Get spec and add G's and I to TE *)
@@ -99,7 +100,7 @@ let bootstrap (App.T {schemas; txns}) =
     ]
     @ (* Record field accessors *) accessors
     @ (* Guarantees *) (List.map (fun _G -> 
-                                    (_G, Type.some ty2)) _Gs) in
+                                    (_G, some ty2)) _Gs) in
   (* bootstrap KE *)
   let ke = List.fold_left 
             (fun ke (ty_str,k) -> 
