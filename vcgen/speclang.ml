@@ -21,7 +21,6 @@ module Type = struct
 
   type _ t = 
     | Any: _ t 
-    | Some : 'a t -> some t (* encoding an existential *)
     | Int: int t 
     | Bool: bool t 
     | String: string t 
@@ -38,6 +37,8 @@ module Type = struct
     | Triple: 'a t * 'b t * 'c t -> ('a * 'b * 'c) t
     | Option: 'a t -> 'a option t
 
+  type some_type = SomeType: 'a t -> some_type
+
   let rec to_string: type a. a t -> string  = function 
     | Any -> "any" | Int -> "Int" | Bool -> "Bool" 
     | Id -> "Id" | String -> "String" | Unit -> "Unit" 
@@ -49,19 +50,20 @@ module Type = struct
     | Triple (t1,t2,t3) -> "("^(to_string t1)^","^(to_string t2)
                            ^","^(to_string t2)^")"
     | Option t -> (to_string t)^" option"
-    | Some t -> to_string t
 
-  let _of: string -> _ t  = function
-    |"Id" -> Some Id | "Rec" -> Some Rec | "St" -> Some St
-    | "Set" -> Some Set | "Str" -> Some String | "Unit" -> Some Unit
-    | "Table" -> Some Table | _ -> failwith "Type._of: Unexpected"
+  let _of: string -> some_type  = function
+    |"Id" -> SomeType Id | "Rec" -> SomeType Rec 
+    | "St" -> SomeType St | "Set" -> SomeType Set 
+    | "String" -> SomeType String | "Unit" -> SomeType Unit
+    | "Table" -> SomeType Table 
+    | str -> failwith @@ "Type._of: Unexpected "^str^"\n"
 
   let assert_equal: type a b. a t -> b t -> unit = 
     fun t1 t2 -> () (* Unimpl. *)
 
 end
 
-type some_type = SomeType: 'a Type.t -> some_type
+type some_type = Type.some_type = SomeType: 'a Type.t -> some_type
 
 module Cons = 
 struct
@@ -194,7 +196,7 @@ and pred =
           | Exists: 'a Type.t * (Ident.t list -> pred) -> pred
           | SIn of record expr * set expr
 
-let (fresh_bv,_) = gen_name "κ"
+let (fresh_bv,bv_reset) = gen_name "bv"
 let (fresh_stl,_) = gen_name "δ"
 let (fresh_stg,_) = gen_name "Δ"
 
@@ -392,6 +394,22 @@ struct
 
   let subst = expr_subst
 
+  (* Without the type annotation, the type inferred for 
+   * this function is:
+   *    set expr -> set Type.t 
+   * Why couldn't ocamlc infer the most general type?
+   * *)
+  let type_of: type a. a expr -> a Type.t = function
+    | Var (_,ty) -> ty
+    | App (_,_,ty) -> ty
+    | App2 (_,_,ty) -> ty
+    | Const (ty,_) -> ty
+    | SConst _ -> Type.Set
+    | SLit _ -> Type.Set
+    | SBind _ -> Type.Set
+    | SITE _ -> Type.Set
+    | SU _ -> Type.Set
+
   let type_cast = type_cast
 
   (* let (??) x = Expr.Var x *)
@@ -431,6 +449,12 @@ struct
          | SIn of record expr * set expr
 
   let to_string = pred_to_string
+
+  let print_all = List.iter (fun p -> 
+    begin
+      printf "%s\n" @@ to_string p;
+      bv_reset ();
+    end)
 
   let subst = pred_subst
 
@@ -472,7 +496,9 @@ struct
   let is_in_dom (i,st) = 
     Exists (Type.Rec, fun [r] -> ?&& [Var(r,Type.Rec) @: st;
                                       id(Var(r,Type.Rec)) @== i])
-  let is_not_in_dom (i,st) = Not (is_in_dom (i,st))
+  let is_not_in_dom (i,st) = 
+    Forall (Type.Rec, fun [r] -> (Var(r,Type.Rec) @: st) @=>
+                                      id(Var(r,Type.Rec)) @!= i)
   let _I (st) = b_app(L._I,[st])
   let _R (st,st') = b_app(L._R,[st;st'])
   let _Rl (stl,stg,stg') = b_app(L._Rl,[stl;stg;stg'])

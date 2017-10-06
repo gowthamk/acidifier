@@ -86,11 +86,9 @@ let implementation ppf sourcefile outputprefix =
               Printf.printf "----- Type Env ----\n";
               TE.print te;
               Printf.printf "----- Context ----\n";
-              let pstr =  match phi with 
-                | P.And ps -> String.concat "\n" @@ 
-                                List.map P.to_string ps
-                | _ -> P.to_string phi in
-              Printf.printf "%s\n" pstr;
+              match phi with 
+                | P.And ps -> P.print_all ps
+                | _ -> Printf.printf "%s\n" @@ P.to_string phi;
             end in
     let _ = Verify.doIt (ke,te,phi) app (Spec.spec()) in
       if !Clflags.print_types then begin
@@ -98,6 +96,7 @@ let implementation ppf sourcefile outputprefix =
         Stypes.dump (Some (outputprefix ^ ".annot"))
       end else ()
   with x ->
+    flush_all ();
     Stypes.dump (Some (outputprefix ^ ".annot"));
     raise x
 

@@ -2,6 +2,7 @@ open Speclang
 open Specelab
 module P = Predicate
 (*
- * (Θ,Γ) ⊢ Φ ⇒ vcs 
+ * (Θ,Γ) ⊢ Φ ⇒ ψ
  *)
-val doIt: (KE.t*TE.t*P.t) -> Ident.t list(*vcs*) -> bool
+type res = SAT | UNSAT | UNKNOWN
+val check_validity: (KE.t*TE.t*P.t(*φ*)) -> P.t(*ψ*) -> res

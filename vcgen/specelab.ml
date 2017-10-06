@@ -91,12 +91,16 @@ let bootstrap (App.T {schemas; txns}) =
       (L.is_in, some @@ Arrow (Type.Pair (Type.St, Type.Rec),
                             Type.Bool));
       (L.flush, some ty3);
-      (*  _IIr/IIc/Rl/Rc :-> ty3; R/G :-> ty2; I :-> ty1 *)
+      (*  _IIr/IIc/Rl/Rc/I :-> ty3; R/G :-> ty2; I :-> ty1 *)
       (L._IIr, some ty3);
       (L._IIc, some ty3);
       (L._Rl, some ty3);
       (L._Rc, some ty3);
       (L._R, some ty2);
+      (L._I, some ty1);
+      (* special hidden fields *)
+      (L.id, some @@ Arrow (Type.Rec, Type.Id));
+      (L.del, some @@ Arrow (Type.Rec, Type.Bool));
     ]
     @ (* Record field accessors *) accessors
     @ (* Guarantees *) (List.map (fun _G -> 

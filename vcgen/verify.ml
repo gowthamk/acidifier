@@ -56,9 +56,6 @@ let print_env env =
   let open Path in
   let ppf = Format.std_formatter in
   let strf = Format.str_formatter in
-  (*let _ = Printtyp.type_expr strf tye in
-  let _ = printf "of_tye(%s)\n" @@ 
-            Format.flush_str_formatter () in*)
   (* Higher-rank polymorphism is needed to realize this:
   let f: type b. type_expr -> (type a. a Type.t -> b Type.t) 
         -> b Type.t =
@@ -235,9 +232,18 @@ let expr_to_pred env exp =
   let SomeExpr ne = expr_to_native env exp in
     native_to_pred @@ Expr.type_cast ne Type.Bool
 
-let stabilize env (_F:F.t)= 
+let stabilize env rc (_F:F.t)= 
   let _ = printf "--- to stabilize: %s\n" @@ F.to_string _F in
-    _F
+  let _R = match rc with 
+            | `Read -> _Rl
+            | `Commit -> _Rc in
+  let psi = _Forall_St3 @@ fun (stl,stg,stg') -> 
+              _R(stl,stg,stg') @=> (_F(stl,stg) @== _F(stl,stg')) in
+  let res = Z3E.check_validity (env.ke,env.te,env.phi) psi in
+  let _stable_F = match res with | UNSAT -> _F
+                    | _ ->fun (stl,_) ->  _SExists Type.St @@ 
+                            fun stg -> (_I(stg),_F(stl,stg)) in
+    _stable_F
 
 (* Returns a stable F.t *)
 let rec doIt_letexp env (x,tye) (e1:expression) (e2:expression) : F.t = 
@@ -280,7 +286,7 @@ let rec doIt_letexp env (x,tye) (e1:expression) (e2:expression) : F.t =
               let _F(stl,stg) = _SExists Type.Rec @@ 
                                   fun x' -> (pred stg x', expr_subst (x',x) 
                                                  @@ _F2(stl,stg)) in
-              let stable_F = stabilize env _F in
+              let stable_F = stabilize env `Read _F in
                 stable_F
           | (Texp_construct (_,{cstr_name="::"},args), _) ->
               failwith "doIt_valbind: SQL join Unimpl.\n"
@@ -346,7 +352,7 @@ and doIt_exp env (exp:Typedtree.expression) =
                                   _SLit (fun r' -> r' <~ r),
                                   _SConst [r]) in
               let _F(stl,stg) = _SBind stg bind_f in
-              let stable_F = stabilize env _F in
+              let stable_F = stabilize env `Read _F in
                 stable_F (* compile and see *)
           | _ -> failwith "doIt_exp: SQL.update impossible case"
         end

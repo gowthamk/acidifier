@@ -57,3 +57,5 @@ B ./utils
 
 S ./vcgen
 B ./vcgen
+
+PKG z3
