@@ -41,12 +41,12 @@ let bootstrap_pe (Spec.T spec) =
                                     _IIc(stl,stg,stg')]) in
   (* flush_def *)
   (* ∀(r:Rec). r∈(δ»Δ) ⇔ (¬(r.id∈dom(δ)) ∧ r∈Δ) ∨ (r∈δ ∧ ¬r.del) *)
-  let flush_def = 
+  (*let flush_def = 
     _Forall_St3 @@ fun (stl,stg,st) -> 
       _Forall_Rec1 @@ fun r -> 
         (r @: st) @<=> ?|| [is_not_in_dom(id(r),stl) 
                                   @&& (r @: stg);
-                              (r @: stl) @&& Not (del(r))] in
+                              (r @: stl) @&& Not (del(r))] in*)
   (* flush theorems *)
   (* dom_eq def *)
   (* empty_st def *)
@@ -54,7 +54,7 @@ let bootstrap_pe (Spec.T spec) =
     ?&& ([_R_def; 
           _Rl_def; 
           _Rc_def; 
-          flush_def] 
+          (*flush_def*)] 
          @ (* Guarantees and Invariants *)spec.asserts)
 
 

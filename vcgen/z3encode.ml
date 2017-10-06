@@ -98,7 +98,9 @@ let mk_func_decl_s name arg_sorts res_sort =
 let mk_and conjs = match conjs with 
   | [] -> mk_true () | [c] -> c 
   | _ -> mk_and !ctx conjs
-let mk_or conjs = mk_or !ctx conjs
+let mk_or disjs = match disjs with 
+  | [] -> mk_true () | [c] -> c 
+  | _ -> mk_or !ctx disjs
 let mk_eq e1 e2 = mk_eq !ctx e1 e2
 let mk_gt e1 e2 = mk_gt !ctx e1 e2
 let mk_lt e1 e2 = mk_lt !ctx e1 e2
@@ -317,6 +319,7 @@ let rec doIt_set_expr: set spec_expr
                   @@ mk_forall [bv_const] body in
         ([cstr], s)
     | SExists (ty, f) ->
+      (*TODO: Skolemizing may not be safe! *)
       let c_name = match ty with 
                     | Type.St -> fresh_st_name () 
                     | _ -> fresh_const_name () in
@@ -411,6 +414,7 @@ and doIt_pred (p:pred) : z3_expr list =
                   -> (c list*a) -> (c list*b) -> c list = 
       fun f (l1,a) (l2,b) -> l1 @ l2 @ [f a b] in
   let one x = [x] in
+  let st_sort = sort_of_typ @@ Type.St in
     match p with 
       | Expr e -> [g e]
       | Eq (v1,v2) -> (match type_of v1, type_of v2 with 
@@ -434,7 +438,9 @@ and doIt_pred (p:pred) : z3_expr list =
           let sorts = sorts_of_typ ty in
           let (bv_names,bv_ids,bv_consts) = List.split3 @@
             List.map (fun sort -> 
-                        let bv_name = fresh_bv_name () in
+                        let bv_name = if sort = st_sort 
+                                      then fresh_st_name () 
+                                      else fresh_bv_name () in
                         let bv_id = Ident.create bv_name in
                         let bv_const = mk_const_s bv_name sort in
                           (bv_name,bv_id,bv_const)) sorts in
@@ -469,11 +475,11 @@ let assert_phi phi = match phi with
   | P.And phis -> 
       _assert_all @@ List.concat 
           @@ List.map (fun phi -> 
-                          let ps = doIt_pred phi in 
-                          let print p = printf "%s\n" 
-                                          @@ Z3.Expr.to_string p in
-                          let _ = List.iter print ps in
-                            (bv_reset(); ps)) phis
+                         let ps = doIt_pred phi in 
+                         let print p = printf "%s\n" 
+                                         @@ Z3.Expr.to_string p in
+                         let _ = List.iter print ps in
+                           (bv_reset(); ps)) phis
   | _ -> _assert_all @@ doIt_pred phi
 (*
 let assert_neg_const name = 
@@ -486,11 +492,10 @@ let setup (ke,te,phi) =
       declare_types ke;
       declare_vars te;
       assert_phi phi;
-      Printf.printf "*****  CONTEXT ******\n";
       output_string out_chan @@ Solver.to_string !solver;
       output_string out_chan "(check-sat)\n";
       output_string out_chan "(get-model)\n";
-      Printf.printf "\n*********************\n";
+      printf "Context printed in VC.z3\n";
       flush_all ();
     end
 
