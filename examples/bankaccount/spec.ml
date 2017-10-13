@@ -20,14 +20,16 @@ let user_account = Var (Ident.create "user_account", Type.Table)
 
 let withdraw_G: state expr * state expr -> pred = fun (st,st') ->
   _Exists_Id1 @@ fun i -> 
-    let res = st @>>= 
-        fun x -> SITE (id(x) @== i, 
-                        _SLit (fun x' -> 
-                                 ?&& [id(x') @== id(x);
-                                      sbal(x') @== sbal(x);
-                                      cbal(x') @>= !! 0]),
-                        SConst [x])in
-      st' @== res
+    st' @== (st @>>= fun x -> 
+                      let t_set = _SExists Type.Rec @@ 
+                                    fun x' -> 
+                                      (?&& [id(x') @== id(x);
+                                            sbal(x') @== sbal(x);
+                                            table(x') @== table(x);
+                                            cbal(x') @>= !! 0], 
+                                       _SConst [x']) in
+                      let f_set = _SConst [x] in 
+                        SITE (id(x) @== i, t_set, f_set))
 
 let deposit_G (st,st') = withdraw_G (st,st')
 
@@ -46,7 +48,7 @@ let save_G (st,st') = truee
                                 (value(??st',??l') @== value(??st,??l')))])) *)
 
 let inv (st) = 
-  _Forall_St1_Rec1 @@ function (st,r)->
+  _Forall_Rec1 @@ function (r)->
         (r @: st) @=> ?&& [cbal(r) @>= !! 0; 
                                sbal(r) @>= !! 0]
 

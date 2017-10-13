@@ -41,7 +41,7 @@ module Type = struct
 
   let rec to_string: type a. a t -> string  = function 
     | Any -> "any" | Int -> "Int" | Bool -> "Bool" 
-    | Id -> "Id" | String -> "String" | Unit -> "Unit" 
+    | Id -> "Id" | String -> "Str" | Unit -> "Unit" 
     | Table -> "Table" | Date -> "Date"
     | Rec -> "Rec" | St -> "St" | Set -> "Set"
     | Arrow (t1,t2) -> (to_string t1)^" -> "^(to_string t2)
@@ -54,7 +54,7 @@ module Type = struct
   let _of: string -> some_type  = function
     |"Id" -> SomeType Id | "Rec" -> SomeType Rec 
     | "St" -> SomeType St | "Set" -> SomeType Set 
-    | "String" -> SomeType String | "Unit" -> SomeType Unit
+    | "Str" -> SomeType String | "Unit" -> SomeType Unit
     | "Table" -> SomeType Table 
     | str -> failwith @@ "Type._of: Unexpected "^str^"\n"
 
@@ -154,6 +154,7 @@ struct
   let get_accessor = function
     | "id" -> id | "del" -> del | "txn" -> txn (* spl. accessors *)
     | str -> List.assoc str !accessors
+  let get_accessors () = snd @@ List.split !accessors
   (* Invariants and Relations *)
   let _I = Ident.create "I"
   let _II = Ident.create "II"
@@ -162,6 +163,7 @@ struct
   let _R = Ident.create "R"
   let _Rl = Ident.create "Rl"
   let _Rc = Ident.create "Rc"
+  let _F = Ident.create "F"
 end
 
 type _ expr = 
@@ -505,6 +507,8 @@ struct
   let _Rc (stl,stg,stg') = b_app(L._Rc,[stl;stg;stg'])
   let _IIr (stl,stg,stg') = b_app(L._IIr,[stl;stg;stg'])
   let _IIc (stl,stg,stg') = b_app(L._IIc,[stl;stg;stg'])
+  let _F: state expr * state expr -> set expr =
+    fun (stl,stg) -> App (L._F,[stl;stg],Type.Set)
 
   let _Forall_St1 f = 
     Forall (Type.St, 
@@ -547,6 +551,13 @@ struct
             function [st;r] -> f (Var (st,Type.St), 
                                   Var(r,Type.Rec))
               | _ -> failwith "_Forall_St1_Rec1: Unexpected")
+
+  let _Forall_St1_Rec2 f = 
+    Forall (Type.Triple (Type.St, Type.Rec, Type.Rec), 
+            function [st;r1;r2] -> f (Var (st,Type.St), 
+                                      Var (r1,Type.Rec), 
+                                      Var (r2,Type.Rec))
+              | _ -> failwith "_Forall_St1_Rec2: Unexpected")
 (*
   let _Forall_St3_Rec1 f = 
     Forall ([Type.St; Type.St; Type.St; Type.Rec], 

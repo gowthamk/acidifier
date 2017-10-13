@@ -8,6 +8,7 @@ module E = Expr
 module F = StateTransformer
 module Z3E = Z3encode
 open P
+let _F (s1,s2) = failwith "Use P._F to refer to L._F application"
 open E
 
 
@@ -68,7 +69,9 @@ let print_env env =
       match KE.find_name (Type.to_string Table) ke with
       | Kind.Variant cons -> List.exists (fun c -> 
                                 Cons.name c = str) cons
-      | _ -> false 
+      | Kind.Enum tags -> List.exists (fun t -> 
+                                Ident.name t = str) tags
+      | _ -> false
     with Not_found -> false in
     match tye.desc with
     | Tvar aop -> 
@@ -234,12 +237,16 @@ let expr_to_pred env exp =
 
 let stabilize env rc (_F:F.t)= 
   let _ = printf "--- to stabilize: %s\n" @@ F.to_string _F in
+  (* Definition of P._F is given by _F *)
+  let _F_def = _Forall_St2 @@ fun (stl,stg) -> 
+                  P._F(stl,stg) @== _F(stl,stg) in
+  let phi' = P.conj env.phi _F_def in
   let _R = match rc with 
             | `Read -> _Rl
             | `Commit -> _Rc in
   let psi = _Forall_St3 @@ fun (stl,stg,stg') -> 
-              _R(stl,stg,stg') @=> (_F(stl,stg) @== _F(stl,stg')) in
-  let res = Z3E.check_validity (env.ke,env.te,env.phi) psi in
+              _R(stl,stg,stg') @=> (P._F(stl,stg) @== P._F(stl,stg')) in
+  let res = Z3E.check_validity (env.ke, env.te, phi') psi in
   let _stable_F = match res with | UNSAT -> _F
                     | _ ->fun (stl,_) ->  _SExists Type.St @@ 
                             fun stg -> (_I(stg),_F(stl,stg)) in
@@ -275,7 +282,7 @@ let rec doIt_letexp env (x,tye) (e1:expression) (e2:expression) : F.t =
                 let t = Expr.table_name @@ String.lowercase_ascii @@ 
                           table_cons.cstr_name in
                 let table_pred = table(r) @== t in
-                  ?&& [belongs_pred; table_pred; select_pred] in
+                  ?&& [inv_pred; belongs_pred; table_pred; select_pred] in
               (* Analyze e2 assuming  x: { ν:Rec | ∃Δ. Φ(Δ,v)} *)
               let te' = TE.add x (some Type.Rec) env.te in
               let x_rec = Expr.record x in
@@ -349,8 +356,10 @@ and doIt_exp env (exp:Typedtree.expression) =
                 let table_pred = table(r') @== table(r) in
                   ?&& [table_pred; upd_pred] in
               let bind_f r = SITE(phi(r), 
-                                  _SLit (fun r' -> r' <~ r),
-                                  _SConst [r]) in
+                                  _SExists Type.Rec 
+                                    (fun r' -> (r' <~ r, 
+                                                _SConst [r'])),
+                                  _SConst []) in
               let _F(stl,stg) = _SBind stg bind_f in
               let stable_F = stabilize env `Read _F in
                 stable_F (* compile and see *)

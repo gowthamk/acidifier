@@ -39,6 +39,19 @@ let bootstrap_pe (Spec.T spec) =
   let _Rc_def = _Forall_St3 @@ function (stl,stg,stg') -> 
       _Rc(stl,stg,stg') @<=> (?&& [_R(stg,stg'); 
                                     _IIc(stl,stg,stg')]) in
+  (* Id Axiom *)
+  let id_axiom = _Forall_St1_Rec2 @@ function (st,r1,r2) ->
+      (?&& [r1 @: st; r2 @: st]) @=> (?|| [r1 @== r2; 
+                                           id(r1) @!= id(r2)]) in
+  (* Extensional equality of records *)
+  let rec_ext_eq = _Forall_Rec2 @@ function (r1,r2) ->
+      let accessors = L.get_accessors () in
+      let attr r1 acc = App (acc,[r1],Type.Any) in
+      let r1_attrs = (id(r1))::(List.map (attr r1) accessors) in
+      let r2_attrs = (id(r2))::(List.map (attr r2) accessors) in
+      let attrs_eq = List.map2 (fun a1 a2 -> a1 @== a2) 
+                          r1_attrs r2_attrs in
+        (?&& attrs_eq) @=> (r1 @== r2) in
   (* flush_def *)
   (* ∀(r:Rec). r∈(δ»Δ) ⇔ (¬(r.id∈dom(δ)) ∧ r∈Δ) ∨ (r∈δ ∧ ¬r.del) *)
   (*let flush_def = 
@@ -54,6 +67,8 @@ let bootstrap_pe (Spec.T spec) =
     ?&& ([_R_def; 
           _Rl_def; 
           _Rc_def; 
+          id_axiom;
+          rec_ext_eq;
           (*flush_def*)] 
          @ (* Guarantees and Invariants *)spec.asserts)
 
@@ -67,8 +82,9 @@ let bootstrap (App.T {schemas; txns}) =
       (to_string String, Uninterpreted);
       (* Table :-> Variant{Stock, Order, Customer, ...} *)
       let table_names = List.map Tableschema.name schemas in
-      let all_cons = List.map mk_nullary_cons table_names in 
-        (to_string Table, Variant all_cons)
+      (*let all_cons = List.map mk_nullary_cons table_names in *)
+      let all_tags = List.map Ident.create table_names in 
+        (to_string Table, Enum all_tags)
     ] in
   (* Record field accessors *)
   (* eg: TE[s_id :-> Type.record -> Type.Id],
@@ -98,6 +114,7 @@ let bootstrap (App.T {schemas; txns}) =
       (L._Rc, some ty3);
       (L._R, some ty2);
       (L._I, some ty1);
+      (L._F, some @@ Arrow (Triple (St,St,Rec), Bool));
       (* special hidden fields *)
       (L.id, some @@ Arrow (Type.Rec, Type.Id));
       (L.del, some @@ Arrow (Type.Rec, Type.Bool));
