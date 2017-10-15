@@ -408,6 +408,7 @@ struct
     | Const (ty,_) -> ty
     | SConst _ -> Type.Set
     | SLit _ -> Type.Set
+    | SExists _ -> Type.Set
     | SBind _ -> Type.Set
     | SITE _ -> Type.Set
     | SU _ -> Type.Set

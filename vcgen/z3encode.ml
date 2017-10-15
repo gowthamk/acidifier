@@ -594,7 +594,8 @@ let setup (ke,te,phi) =
     assert_phi phi;
   end
 
-type res = SAT | UNSAT | UNKNOWN
+type res = Z3.Solver.status = 
+  | UNSATISFIABLE | UNKNOWN | SATISFIABLE 
 let check_validity (ke,te,phi) psi =
   if not (Log.open_ "z3.log") then
     failwith "Log couldn't be opened."
@@ -609,6 +610,5 @@ let check_validity (ke,te,phi) psi =
         Printf.printf "Disposing...\n";
         reset ();
         Gc.full_major ();
-        failwith "Unimpl.";
-        UNSAT
+        res
       end

@@ -247,7 +247,7 @@ let stabilize env rc (_F:F.t)=
   let psi = _Forall_St3 @@ fun (stl,stg,stg') -> 
               _R(stl,stg,stg') @=> (P._F(stl,stg) @== P._F(stl,stg')) in
   let res = Z3E.check_validity (env.ke, env.te, phi') psi in
-  let _stable_F = match res with | UNSAT -> _F
+  let _stable_F = match res with | UNSATISFIABLE -> _F
                     | _ ->fun (stl,_) ->  _SExists Type.St @@ 
                             fun stg -> (_I(stg),_F(stl,stg)) in
     _stable_F
