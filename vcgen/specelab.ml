@@ -47,11 +47,14 @@ let bootstrap_pe (Spec.T spec) =
   let rec_ext_eq = _Forall_Rec2 @@ function (r1,r2) ->
       let accessors = L.get_accessors () in
       let attr r1 acc = App (acc,[r1],Type.Any) in
-      let r1_attrs = (id(r1))::(List.map (attr r1) accessors) in
-      let r2_attrs = (id(r2))::(List.map (attr r2) accessors) in
+      let basic_eq = [id(r1) @== id(r2); 
+                      table(r1) @== table(r2)] in
+      let r1_attrs = List.map (attr r1) accessors in
+      let r2_attrs = List.map (attr r2) accessors in
       let attrs_eq = List.map2 (fun a1 a2 -> a1 @== a2) 
                           r1_attrs r2_attrs in
-        (?&& attrs_eq) @=> (r1 @== r2) in
+      let all_eq = basic_eq @ attrs_eq in
+        (?&& all_eq) @=> (r1 @== r2) in
   (* flush_def *)
   (* ∀(r:Rec). r∈(δ»Δ) ⇔ (¬(r.id∈dom(δ)) ∧ r∈Δ) ∨ (r∈δ ∧ ¬r.del) *)
   (*let flush_def = 

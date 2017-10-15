@@ -40,11 +40,37 @@ let _dbv = ref false;;
 let _ddecls = ref false;;
 
 let mk_new_ctx () = 
-  let cfg = [("model", "true"); ("proof", "false")] in
+  (*
+   * z3 -smt2 smt.auto-config=false smt.mbqi=true
+   * smt.macro-finder=true smt.random-seed=5
+   * smt.pull_nested_quantifiers=true
+   *)
+  let _ = Random.init 23 in
+  let seed =  Random.int 100 in
+  let cfg = [(*("model", "true"); 
+             ("proof", "false");*)
+             ("auto-config","false"); ] in
     mk_context cfg
 
-let ctx = ref @@ mk_new_ctx ()
-let solver = ref @@ mk_solver !ctx None 
+let ctx = ref @@ mk_new_ctx ();;
+let solver = ref @@ mk_solver !ctx None ;;
+let set_params () = 
+  let param_vals = [("mbqi",`Bool true); 
+                    ("macro-finder",`Bool true); 
+                    ("random-seed",`Int 5); 
+                    ("pull_nested_quantifiers", `Bool true)] in
+  let params = Params.mk_params !ctx in
+    begin
+      List.iter (fun (name, value) -> 
+                  let sym = Symbol.mk_string !ctx name in
+                    match value with
+                    | `Bool b -> Params.add_bool params sym b
+                    | `Int i -> Params.add_int params sym i) 
+                param_vals;
+      Solver.set_parameters !solver params;
+    end;;
+set_params ();;
+
 let (cmap : (string, z3_expr) Hashtbl.t) = Hashtbl.create 211
 let (tmap : (some_type,z3_sort) Hashtbl.t) = Hashtbl.create 47
 let (fmap : (string,FuncDecl.func_decl) Hashtbl.t) = Hashtbl.create 47
@@ -205,9 +231,13 @@ let declare_enum_type (SomeType ty) (consts: Ident.t list) =
   let tags = List.map (fun c -> 
                          mk_const_s c s) consts in
   let {const=a} = new_bv ~sort:s () in
-  let s_univ_cstr = expr_of_quantifier @@ 
+  let s_max_cstr = expr_of_quantifier @@ 
         mk_forall [a] @@ 
           mk_or (List.map (fun tag -> a @= tag) tags) in
+  let s_min_cstr = mk_and @@ 
+        List.map (fun (x,x') -> x @!= x') @@ 
+          List.distinct_pairs tags in
+  let s_univ_cstr = mk_and [s_min_cstr; s_max_cstr] in
   begin
     Hashtbl.add tmap (SomeType ty) s;
     List.iter2 (Hashtbl.add cmap) consts tags;
@@ -267,7 +297,6 @@ let declare_types (ke) =
   end
 
 let declare_const name typ = 
-  let _ = printf "%s being added\n" name in
   let sort = sort_of_typ typ in
   let const_decl = mk_const_s name sort in
     Hashtbl.add cmap name const_decl

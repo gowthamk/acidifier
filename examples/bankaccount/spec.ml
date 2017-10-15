@@ -14,6 +14,7 @@ type t = T of {txns: txn list;
                asserts: P.t list}
 
 let id (x) = App (L.get_accessor "id", [x], Type.Id)
+let name (x) = App (L.get_accessor "name", [x], Type.String)
 let cbal (x) = App (L.get_accessor "cbal", [x], Type.Int)
 let sbal (x) = App (L.get_accessor "sbal", [x], Type.Int)
 let user_account = Var (Ident.create "user_account", Type.Table)
@@ -24,6 +25,7 @@ let withdraw_G: state expr * state expr -> pred = fun (st,st') ->
                       let t_set = _SExists Type.Rec @@ 
                                     fun x' -> 
                                       (?&& [id(x') @== id(x);
+                                            name(x') @== name(x);
                                             sbal(x') @== sbal(x);
                                             table(x') @== table(x);
                                             cbal(x') @>= !! 0], 
@@ -31,9 +33,9 @@ let withdraw_G: state expr * state expr -> pred = fun (st,st') ->
                       let f_set = _SConst [x] in 
                         SITE (id(x) @== i, t_set, f_set))
 
-let deposit_G (st,st') = withdraw_G (st,st')
+let deposit_G (st,st') = st' @== st
 
-let save_G (st,st') = truee
+let save_G (st,st') = st' @== st
   (*Exists ([Type.Rec], 
           function [l] ->     
             (?&& [??l @: ??st;

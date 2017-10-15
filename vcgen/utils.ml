@@ -7,6 +7,7 @@ sig
   val last : 'a list -> 'a
   val take : int -> 'a list -> 'a list
   val split3: ('a*'b*'c) list -> 'a list * 'b list * 'c list
+  val distinct_pairs: 'a list -> ('a*'a) list
 end =
 struct
   include List
@@ -36,7 +37,10 @@ struct
     | [] -> ([],[],[])
     | (x,y,z)::l' -> let (xs,ys,zs) = split3 l' in
                         (x::xs, y::ys, z::zs)
-
+  let rec distinct_pairs l = match l with
+    | [] -> [] | [x] -> [] 
+    | x::xs -> (List.map (fun x' -> (x,x')) xs)
+                @ (distinct_pairs xs)
 end
 
 module Str =
