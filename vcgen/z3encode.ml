@@ -29,7 +29,6 @@ type z3_sort = Z3.Sort.sort
 type z3_func = func_decl
 type z3_pred = (z3_expr list -> z3_expr)
 type z3_set = (z3_expr list -> z3_expr -> z3_expr)
-type z3_rel = z3_expr*z3_expr -> z3_expr
 
 let unexpected () = failwith "Unexpected!" 
 let dprintf = function 
@@ -39,61 +38,66 @@ let dprintf = function
 let _dbv = ref false;;
 let _ddecls = ref false;;
 
+(*
+ * z3 -smt2 smt.auto-config=false smt.mbqi=true
+ * smt.macro-finder=true smt.random-seed=5
+ * smt.pull_nested_quantifiers=true
+ *)
 let mk_new_ctx () = 
-  (*
-   * z3 -smt2 smt.auto-config=false smt.mbqi=true
-   * smt.macro-finder=true smt.random-seed=5
-   * smt.pull_nested_quantifiers=true
-   *)
   let _ = Random.init 23 in
   let seed =  Random.int 100 in
-  let cfg = [(*("model", "true"); 
-             ("proof", "false");*)
-             ("auto-config","false"); ] in
+  let cfg = [("auto-config","false")] in
     mk_context cfg
 
-let ctx = ref @@ mk_new_ctx ();;
-let solver = ref @@ mk_solver !ctx None ;;
-let set_params () = 
+let mk_new_solver ctx = 
+  let solver = mk_solver ctx None in
   let param_vals = [("mbqi",`Bool true); 
                     ("macro-finder",`Bool true); 
                     ("random-seed",`Int 5); 
                     ("pull_nested_quantifiers", `Bool true)] in
-  let params = Params.mk_params !ctx in
+  let params = Params.mk_params ctx in
     begin
       List.iter (fun (name, value) -> 
-                  let sym = Symbol.mk_string !ctx name in
+                  let sym = Symbol.mk_string ctx name in
                     match value with
                     | `Bool b -> Params.add_bool params sym b
                     | `Int i -> Params.add_int params sym i) 
                 param_vals;
-      Solver.set_parameters !solver params;
+      Solver.set_parameters solver params;
+      solver
     end;;
-set_params ();;
 
+(*
+ * Z3 state
+ *)
+let ctx = ref @@ mk_new_ctx ()
+let solver = ref @@ mk_new_solver !ctx
 let (cmap : (string, z3_expr) Hashtbl.t) = Hashtbl.create 211
 let (tmap : (some_type,z3_sort) Hashtbl.t) = Hashtbl.create 47
 let (fmap : (string,FuncDecl.func_decl) Hashtbl.t) = Hashtbl.create 47
-
+(*
+ * Fresh name generators. Maintain an internal state.
+ *)
 let (fresh_bv_name, bv_reset) = gen_name "bv" 
 let fresh_bv () = Ident.create @@  fresh_bv_name ()
 
-let (fresh_sv_name, _) = gen_name "S" 
+let (fresh_sv_name, sv_reset) = gen_name "S" 
 let fresh_sv () = Ident.create @@  fresh_sv_name ()
 
-let (fresh_rel_name, _) = gen_name "bR" 
-let fresh_rel () = Ident.create @@  fresh_rel_name ()
-
-let (fresh_const_name, _) = gen_name "c" 
+let (fresh_const_name, const_reset) = gen_name "c" 
 let fresh_const () = Ident.create @@  fresh_const_name ()
 
 let (fresh_st_name, st_reset) = gen_name "st" 
 let fresh_st () = Ident.create @@  fresh_st_name ()
 
-let reset () = 
+let reset_state () = 
   begin
     ctx := mk_new_ctx ();
-    solver := mk_solver !ctx None;
+    solver := mk_new_solver !ctx;
+    bv_reset ();
+    sv_reset ();
+    const_reset ();
+    st_reset ();
     Hashtbl.clear cmap;
     Hashtbl.clear tmap;
     Hashtbl.clear fmap;
@@ -209,14 +213,6 @@ let mk_new_pred name psorts : z3_pred =
   let p_decl = mk_func_decl_s name psorts bool_sort in
     fun params -> (sort_check params psorts;
                    mk_app p_decl params)
-
-let mk_new_rel () : z3_rel = 
-  let rel_name = fresh_rel_name () in
-  let rec_sort = sort_of_typ @@ Type.Rec in
-  let bool_sort = sort_of_typ @@ Type.Bool in
-  let rel = mk_func_decl_s rel_name 
-           [rec_sort; rec_sort] bool_sort in
-  fun (x,y) ->  mk_app rel [x;y] 
 
 let mk_set_eq fvs (s1:z3_set) (s2:z3_set) : z3_expr = 
   let rec_sort = sort_of_typ @@ Type.Rec in
@@ -608,7 +604,7 @@ let check_validity (ke,te,phi) psi =
         | UNKNOWN -> printf "UNKNOWN\n" in
       begin
         Printf.printf "Disposing...\n";
-        reset ();
+        reset_state ();
         Gc.full_major ();
         res
       end
