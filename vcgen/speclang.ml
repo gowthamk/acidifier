@@ -426,6 +426,7 @@ struct
   let _SLit f = SLit (fun x -> f @@ Var(x,Type.Rec))
   let _SExists ty f = SExists (ty, fun x -> f @@ Var (x,ty))
   let _SBind s f = SBind (s, fun x -> f @@ Var(x,Type.Rec))
+  let _SITE a b c = SITE(a,b,c)
   let table_name s = Var (Ident.create s, Type.Table)
   let record (x) = Var (x,Type.Rec) 
   let var (x,ty) = Var (x,ty)
@@ -574,12 +575,12 @@ struct
     Exists (Type.St, 
             function [st] -> f (Expr.Var(st,Type.St))
                    | _ -> failwith "_Exists_St1: Unexpected")
-(*
+
   let _Exists_Rec1 f = 
-    Exists ([Type.Rec], 
-            function [r] -> f r
+    Exists (Type.Rec, 
+            function [r] -> f (Expr.Var(r,Type.Rec))
                    | _ -> failwith "_Exists_Rec1: Unexpected")
-*)
+
 end
 
 module Isolation = 

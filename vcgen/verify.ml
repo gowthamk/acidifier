@@ -290,9 +290,14 @@ let rec doIt_letexp env (x,tye) (e1:expression) (e2:expression) : F.t =
                             (_Exists_St1 @@ fun stg -> pred stg x_rec) in
               let _F2 = doIt_exp {env with te=te'; phi=phi'} e2 in
               (* λ(δ.Δ). exists(x', phi(x'), [x'/x] F2(δ,Δ))*)
-              let _F(stl,stg) = _SExists Type.Rec @@ 
-                                  fun x' -> (pred stg x', expr_subst (x',x) 
-                                                 @@ _F2(stl,stg)) in
+              let _F_t(stl,stg) = _SExists Type.Rec @@ 
+                                    fun x' -> (pred stg x', 
+                                               expr_subst (x',x) 
+                                                   @@ _F2(stl,stg)) in
+              let ex_cond stg = _Exists_Rec1 @@ pred stg in
+              let _F(stl,stg) = SITE (ex_cond stg, 
+                                      _F_t(stl,stg), 
+                                      _SConst []) in
               let stable_F = stabilize env `Read _F in
                 stable_F
           | (Texp_construct (_,{cstr_name="::"},args), _) ->

@@ -642,7 +642,7 @@ module Z3decode = struct
         let univ_str = String.concat "," strs in
         let ty_str = Type.to_string ty in
           printf "%s :-> {%s}\n" ty_str univ_str) tmodel;
-        doIt_funs te model;
+        (* doIt_funs te model;*)
     end
     
 end
@@ -665,6 +665,6 @@ let check_validity (ke,te,phi) psi =
         Printf.printf "Disposing...\n";
         reset_state ();
         Gc.full_major ();
-        failwith "Unimpl.";
+        (*failwith "Unimpl.";*)
         res
       end
