@@ -82,6 +82,8 @@ let bootstrap (App.T {schemas; txns}) =
       (to_string Id, Uninterpreted);
       (to_string Rec, Uninterpreted);
       (to_string St, Uninterpreted);
+      (*(to_string Rec, Enum (List.map Ident.create ["rec0"; "rec1"]));
+      (to_string St, Enum (List.map Ident.create ["st0"; "st1"; "st2"]));*)
       (to_string String, Uninterpreted);
       (* Table :-> Variant{Stock, Order, Customer, ...} *)
       let table_names = List.map Tableschema.name schemas in

@@ -8,6 +8,7 @@ sig
   val take : int -> 'a list -> 'a list
   val split3: ('a*'b*'c) list -> 'a list * 'b list * 'c list
   val distinct_pairs: 'a list -> ('a*'a) list
+  val cart_prod: 'a list list -> 'a list list
 end =
 struct
   include List
@@ -41,6 +42,13 @@ struct
     | [] -> [] | [x] -> [] 
     | x::xs -> (List.map (fun x' -> (x,x')) xs)
                 @ (distinct_pairs xs)
+
+  let rec cart_prod ll = match ll with 
+    | [] -> []
+    | [xs] -> List.map (fun x -> [x]) xs
+    | xs::xss -> let yss = cart_prod xss in
+        List.concat @@ List.map 
+          (fun x -> List.map (fun ys -> x::ys) yss) xs
 end
 
 module Str =

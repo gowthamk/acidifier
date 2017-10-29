@@ -404,8 +404,7 @@ let rec doIt_set_expr: z3_expr list -> set spec_expr
                       (s fvs bv.const) @<=> s_body in
         phi
     | SExists (ty, f) -> doIt @@ fun s ->
-      (* Note: Skolemizing is not safe because stability VCs
-       * invoke same definitions twice *)
+      (* Note: Skolemization, if done, must be done cautiously *)
       let ex_bv = new_bv ~sort:(sort_of_typ ty) () in
       let _ = Hashtbl.add cmap ex_bv.name ex_bv.const in
       let _ =  dprintf !_dbv "SExists: added %s\n" ex_bv.name in
@@ -590,6 +589,64 @@ let setup (ke,te,phi) =
     assert_phi phi;
   end
 
+module Z3decode = struct
+
+  let (tmodel : (some_type, z3_expr list) Hashtbl.t) = Hashtbl.create 47
+  let (cmodel : (string, z3_expr) Hashtbl.t) = Hashtbl.create 47
+  let (fmodel : (string, z3_expr list list) Hashtbl.t) = Hashtbl.create 47
+
+  let univ_of_typ typ = try Hashtbl.find tmodel (SomeType typ) 
+                        with Not_found ->
+                          (printf "%s not found in tmodel" 
+                             (Type.to_string typ); raise Not_found)
+  let doIt_sorts ke model = 
+  begin
+    Hashtbl.add tmodel (SomeType Type.Bool) [mk_true ();
+                                             mk_false ()];
+    KE.iter (fun tyid kind -> 
+      let SomeType typ = Type._of @@ Ident.name tyid in
+      let sort = sort_of_typ typ in
+      let univ = Model.sort_universe model sort in 
+        Hashtbl.add tmodel (SomeType typ) univ) ke;
+  end
+
+  let doIt_funs te model = 
+    TE.iter (fun fnid (SomeType (Type.Arrow (arg_typ,res_typ))) -> 
+      let arg_univs = match arg_typ with
+        | Type.Pair (t1,t2) -> [univ_of_typ t1; univ_of_typ t2]
+        | Type.Triple (t1,t2,t3) -> [univ_of_typ t1; 
+                                     univ_of_typ t2; 
+                                     univ_of_typ t3]
+        | t -> [univ_of_typ t] in
+      let args_univ = List.cart_prod arg_univs in
+      let fdecl = fun_of_str @@ Ident.name fnid in
+      let fapps = List.map (mk_app fdecl) args_univ in
+      let eval expr = from_just @@ 
+                          Model.eval model expr true in
+      let fres = List.map (fun fapp -> Z3enums.int_of_lbool @@ 
+                            get_bool_value @@ eval fapp) fapps in
+      begin
+        printf "-------- Model for %s -----\n" (Ident.name fnid);
+        List.iter2 (fun fapp res -> 
+          let str1 = Expr.to_string fapp in
+          let str2 = string_of_int res in
+          printf "%s = %s\n" str1 str2) fapps fres;
+      end) te
+
+  let doIt (ke,te) model = 
+    begin
+      doIt_sorts ke model;
+      printf "---------- Sort Universes --------\n";
+      Hashtbl.iter (fun (SomeType ty) vals -> 
+        let strs = List.map Expr.to_string vals in
+        let univ_str = String.concat "," strs in
+        let ty_str = Type.to_string ty in
+          printf "%s :-> {%s}\n" ty_str univ_str) tmodel;
+        doIt_funs te model;
+    end
+    
+end
+
 type res = Z3.Solver.status = 
   | UNSATISFIABLE | UNKNOWN | SATISFIABLE 
 let check_validity (ke,te,phi) psi =
@@ -599,12 +656,15 @@ let check_validity (ke,te,phi) psi =
     let _ = setup (ke,te,phi) in
     let res = discharge psi in
     let _ = match res with 
-        | SATISFIABLE -> printf "SAT\n"
+      | SATISFIABLE -> (printf "SAT\n";
+            Z3decode.doIt (ke,te) 
+                (from_just @@ Solver.get_model !solver))
         | UNSATISFIABLE -> printf "UNSAT\n"
         | UNKNOWN -> printf "UNKNOWN\n" in
       begin
         Printf.printf "Disposing...\n";
         reset_state ();
         Gc.full_major ();
+        failwith "Unimpl.";
         res
       end

@@ -73,7 +73,8 @@ MYCMX=vcgen/utils.cmx vcgen/light_env.cmx vcgen/speclang.cmx \
 			vcgen/astutils.cmx examples/bankaccount/spec.cmx vcgen/app.cmx \
 			vcgen/extract.cmx \
 			vcgen/specelab.cmx \
-			vcgen/z3encode.cmx vcgen/verify.cmx
+			vcgen/z3encode.cmx \
+			vcgen/verify.cmx
 
 acidify.byte: $(ALLOBJS)
 	$(CAMLC) $(LINKFLAGS) -custom -o acidify.byte str.cma unix.cma nums.cma $(ALLOBJS)
@@ -180,7 +181,7 @@ beforedepend:: parsing/lexer.ml
 	$(CAMLC) $(COMPFLAGS) -c $<
 
 .mli.cmi:
-	$(CAMLC) $(COMPFLAGS) -c $<
+	ocamlfind $(CAMLOPT) $(COMPFLAGS) -package Z3 -c $<
 
 .ml.cmx:
 	ocamlfind $(CAMLOPT) $(COMPFLAGS) -package Z3 -c $<
