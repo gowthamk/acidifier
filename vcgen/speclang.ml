@@ -509,8 +509,8 @@ struct
   let _Rc (stl,stg,stg') = b_app(L._Rc,[stl;stg;stg'])
   let _IIr (stl,stg,stg') = b_app(L._IIr,[stl;stg;stg'])
   let _IIc (stl,stg,stg') = b_app(L._IIc,[stl;stg;stg'])
-  let _F: state expr * state expr -> set expr =
-    fun (stl,stg) -> App (L._F,[stl;stg],Type.Set)
+  let _F: state expr -> set expr =
+    fun (stg) -> App (L._F,[stg],Type.Set)
 
   let _Forall_St1 f = 
     Forall (Type.St, 
@@ -627,12 +627,10 @@ struct
 end
 
 module StateTransformer = struct
-  type t = (set expr * set expr -> set expr)
+  type t = (set expr -> set expr)
 
   let to_string _F = 
     let (stl,stg) = (fresh_stl(), fresh_stg ()) in
-    let s = _F (Var (Ident.create stl, Type.Set), 
-                Var (Ident.create stg, Type.Set)) in
-      "λ("^stl^","^stg^"). "^(Expr.to_string s)
+    let s = _F (Var (Ident.create stg, Type.Set)) in
+      "λ("^stg^"). "^(Expr.to_string s)
 end
-

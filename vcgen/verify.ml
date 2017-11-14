@@ -238,18 +238,20 @@ let expr_to_pred env exp =
 let stabilize env rc (_F:F.t)= 
   let _ = printf "--- to stabilize: %s\n" @@ F.to_string _F in
   (* Definition of P._F is given by _F *)
-  let _F_def = _Forall_St2 @@ fun (stl,stg) -> 
-                  P._F(stl,stg) @== _F(stl,stg) in
+  let _F_def = _Forall_St1 @@ fun (stg) -> 
+                  P._F(stg) @== _F(stg) in
   let phi' = P.conj env.phi _F_def in
   let _R = match rc with 
             | `Read -> _Rl
             | `Commit -> _Rc in
   let psi = _Forall_St3 @@ fun (stl,stg,stg') -> 
-              _R(stl,stg,stg') @=> (P._F(stl,stg) @== P._F(stl,stg')) in
+              _R(stl,stg,stg') @=> (P._F(stg) @== P._F(stg')) in
   let res = Z3E.check_validity (env.ke, env.te, phi') psi in
   let _stable_F = match res with | UNSATISFIABLE -> _F
-                    | _ ->fun (stl,_) ->  _SExists Type.St @@ 
-                            fun stg -> (_I(stg),_F(stl,stg)) in
+                    | _ ->fun _ ->  _SExists Type.St @@ 
+                           (* Ignore the given Δ in favor of an
+                            * existentially quantified Δ' *)
+                            fun stg -> (_I(stg),_F(stg)) in
     _stable_F
 
 (* Returns a stable F.t *)
@@ -290,13 +292,13 @@ let rec doIt_letexp env (x,tye) (e1:expression) (e2:expression) : F.t =
                             (_Exists_St1 @@ fun stg -> pred stg x_rec) in
               let _F2 = doIt_exp {env with te=te'; phi=phi'} e2 in
               (* λ(δ.Δ). exists(x', phi(x'), [x'/x] F2(δ,Δ))*)
-              let _F_t(stl,stg) = _SExists Type.Rec @@ 
+              let _F_t(stg) = _SExists Type.Rec @@ 
                                     fun x' -> (pred stg x', 
                                                expr_subst (x',x) 
-                                                   @@ _F2(stl,stg)) in
+                                                   @@ _F2(stg)) in
               let ex_cond stg = _Exists_Rec1 @@ pred stg in
-              let _F(stl,stg) = SITE (ex_cond stg, 
-                                      _F_t(stl,stg), 
+              let _F(stg) = SITE (ex_cond stg, 
+                                      _F_t(stg), 
                                       _SConst []) in
               let stable_F = stabilize env `Read _F in
                 stable_F
@@ -319,13 +321,13 @@ and doIt_exp env (exp:Typedtree.expression) =
                            vb_expr=e1}], e2) -> 
         let _F1 = doIt_exp env e1 in
         let _F2 = doIt_exp env e2 in
-        let _F(stl,stg) = _F1(stl,stg) @<+> _F2(stl,stg) in
+        let _F(stg) = _F1(stg) @<+> _F2(stg) in
           _F
     | Texp_ifthenelse (grd_e,e1,Some e2) -> 
         let phi = expr_to_pred env grd_e in
         let _F1 = doIt_exp env e1 in
         let _F2 = doIt_exp env e2 in
-        let _F(stl,stg) = SITE(phi, _F1(stl,stg), _F2(stl,stg)) in
+        let _F(stg) = SITE(phi, _F1(stg), _F2(stg)) in
           _F
     | Texp_apply ({exp_desc=Texp_ident (Pdot (Pident id,"update",_),_,_)},
                   [(_,Some e1); (_,Some e2); (_,Some e3)]) 
@@ -365,7 +367,7 @@ and doIt_exp env (exp:Typedtree.expression) =
                                     (fun r' -> (r' <~ r, 
                                                 _SConst [r'])),
                                   _SConst []) in
-              let _F(stl,stg) = _SBind stg bind_f in
+              let _F(stg) = _SBind stg bind_f in
               let stable_F = stabilize env `Read _F in
                 stable_F (* compile and see *)
           | _ -> failwith "doIt_exp: SQL.update impossible case"
@@ -374,7 +376,7 @@ and doIt_exp env (exp:Typedtree.expression) =
     | Texp_sequence (e1,e2) ->
         let _F1 = doIt_exp env e1 in
         let _F2 = doIt_exp env e2 in
-        let _F(stl,stg) = _F1(stl,stg) @<+> _F2(stl,stg) in
+        let _F(stg) = _F1(stg) @<+> _F2(stg) in
           _F
     (* () *)
     | Texp_construct (_,{cstr_name="()"}, []) -> fun _ -> SConst []
@@ -400,6 +402,8 @@ let doIt_txn env (Fun.T txn_fn) (Spec.Txn txn) =
                       env.te txn_fn.args_t in
   (* (Θ,Γ,Φ) |- txn_fn.body ⇒ F *)
   let _F = doIt_exp env txn_fn.body in
+  let _ = stabilize env `Commit _F in
+  let _ = printf "Hello\n" in
 (*
   let _assert = _assert env in
   (* Q must be stable w.r.t Rc *)
