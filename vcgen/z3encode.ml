@@ -665,6 +665,6 @@ let check_validity (ke,te,phi) psi =
         Printf.printf "Disposing...\n";
         reset_state ();
         Gc.full_major ();
-        (*failwith "Unimpl.";*)
+        failwith "Unimpl.";
         res
       end

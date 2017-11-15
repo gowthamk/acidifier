@@ -23,7 +23,8 @@ type env = {txn: Ident.t;
             mutable ke: KE.t; 
             mutable te: TE.t;
             mutable ve: VE.t;
-            mutable phi: P.t}
+            mutable phi: P.t;
+            mutable _Fc: F.t}
 
 let some t = SomeType t 
 let printf = Printf.printf
@@ -238,14 +239,20 @@ let expr_to_pred env exp =
 let stabilize env rc (_F:F.t)= 
   let _ = printf "--- to stabilize: %s\n" @@ F.to_string _F in
   (* Definition of P._F is given by _F *)
+  let _Fc = env._Fc in
   let _F_def = _Forall_St1 @@ fun (stg) -> 
                   P._F(stg) @== _F(stg) in
-  let phi' = P.conj env.phi _F_def in
+  let _Fc_def = _Forall_St1 @@ fun (stg) -> 
+                  P._Fc(stg) @== _Fc(stg) in
+  let phi' = ?&& [env.phi; _F_def; _Fc_def] in
   let _R = match rc with 
             | `Read -> _Rl
             | `Commit -> _Rc in
   let psi = _Forall_St3 @@ fun (stl,stg,stg') -> 
-              _R(stl,stg,stg') @=> (P._F(stg) @== P._F(stg')) in
+    let ante = ?&& [stl @== P._Fc(stg) @<+> P._F(stg); 
+                    _R(stl,stg,stg')] in 
+    let conseq = P._F(stg) @== P._F(stg') in 
+      ante @=> conseq in
   let res = Z3E.check_validity (env.ke, env.te, phi') psi in
   let _stable_F = match res with | UNSATISFIABLE -> _F
                     | _ ->fun _ ->  _SExists Type.St @@ 
@@ -290,6 +297,7 @@ let rec doIt_letexp env (x,tye) (e1:expression) (e2:expression) : F.t =
               let x_rec = Expr.record x in
               let phi' = P.conj env.phi 
                             (_Exists_St1 @@ fun stg -> pred stg x_rec) in
+              (* _Fc remains the same since δ remains the same *)
               let _F2 = doIt_exp {env with te=te'; phi=phi'} e2 in
               (* λ(δ.Δ). exists(x', phi(x'), [x'/x] F2(δ,Δ))*)
               let _F_t(stg) = _SExists Type.Rec @@ 
@@ -319,10 +327,11 @@ and doIt_exp env (exp:Typedtree.expression) =
         doIt_letexp env (x,tye) e1 e2
     | Texp_let (ast_rec, [{vb_pat={pat_desc=Tpat_any};
                            vb_expr=e1}], e2) -> 
+        let open F in
         let _F1 = doIt_exp env e1 in
-        let _F2 = doIt_exp env e2 in
-        let _F(stg) = _F1(stg) @<+> _F2(stg) in
-          _F
+        let _Fc' = env._Fc @<+> _F1 in
+        let _F2 = doIt_exp {env with _Fc = _Fc'} e2 in
+          _F1 @<+> _F2
     | Texp_ifthenelse (grd_e,e1,Some e2) -> 
         let phi = expr_to_pred env grd_e in
         let _F1 = doIt_exp env e1 in
@@ -374,10 +383,11 @@ and doIt_exp env (exp:Typedtree.expression) =
         end
     (* e1;e2 *)(* same as let _ = e1 in e2 *)
     | Texp_sequence (e1,e2) ->
+        let open F in
         let _F1 = doIt_exp env e1 in
-        let _F2 = doIt_exp env e2 in
-        let _F(stg) = _F1(stg) @<+> _F2(stg) in
-          _F
+        let _Fc' = env._Fc @<+> _F1 in
+        let _F2 = doIt_exp {env with _Fc = _Fc'} e2 in
+          _F1 @<+> _F2
     (* () *)
     | Texp_construct (_,{cstr_name="()"}, []) -> fun _ -> SConst []
     (* unsupported *)
@@ -437,7 +447,8 @@ let doIt (ke,te,phi) (App.T app) (Spec.T spec) =
   let txns = [List.hd @@ List.rev app.txns] in
   let _ = List.iter (fun txn -> 
                        let env = {txn=Fun.name txn; ke=ke; 
-                                  te=te; phi=phi; ve=VE.empty} in
+                                  te=te; phi=phi; ve=VE.empty;
+                                  _Fc=F.empty} in
                          doIt_txn env txn (spec_of_txn txn)) txns in
     failwith "Unimpl."
 

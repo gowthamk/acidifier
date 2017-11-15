@@ -119,7 +119,8 @@ let bootstrap (App.T {schemas; txns}) =
       (L._Rc, some ty3);
       (L._R, some ty2);
       (L._I, some ty1);
-      (L._F, some @@ Arrow (Type.Pair (Type.St, Type.Rec), Bool));
+      (L._F, some @@ Arrow (Pair (St,Rec), Bool));
+      (L._Fc, some @@ Arrow (Pair (St,Rec), Bool));
       (* special hidden fields *)
       (L.id, some @@ Arrow (Type.Rec, Type.Id));
       (L.del, some @@ Arrow (Type.Rec, Type.Bool));

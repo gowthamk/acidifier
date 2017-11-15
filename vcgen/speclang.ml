@@ -164,6 +164,7 @@ struct
   let _Rl = Ident.create "Rl"
   let _Rc = Ident.create "Rc"
   let _F = Ident.create "F"
+  let _Fc = Ident.create "Fctxt"
 end
 
 type _ expr = 
@@ -420,7 +421,10 @@ struct
   let (!!) c = Const(Type.Int,c)
   let (!!!) recs = SConst recs
   let (@>>=) s f = SBind (s,fun x -> f @@ Var(x,Type.Rec))
-  let (@<+>) s1 s2 = SU (s1,s2)
+  let (@<+>) s1 s2 = match s1,s2 with
+    | SConst [], _ -> s2
+    | _, SConst [] -> s1
+    | _,_ -> SU (s1,s2)
   (* The only set literals are those of records. *)
   let _SConst rs = SConst rs
   let _SLit f = SLit (fun x -> f @@ Var(x,Type.Rec))
@@ -475,7 +479,9 @@ struct
   let truee = Expr (Const(Type.Bool,true))
   let falsee = Expr (Const(Type.Bool,false))
   let (@:) r s = SIn (r,s)(*r∈s*)
-  let (?&&) xs = And xs
+  let (?&&) xs = And (List.concat @@ 
+    List.map (function | And ys -> ys
+                       | y -> [y]) xs)
   let (?||) xs = Or xs
   let (@&&) x y = conj x y
   let (@||) x y = disj x y
@@ -511,6 +517,8 @@ struct
   let _IIc (stl,stg,stg') = b_app(L._IIc,[stl;stg;stg'])
   let _F: state expr -> set expr =
     fun (stg) -> App (L._F,[stg],Type.Set)
+  let _Fc: state expr -> set expr =
+    fun (stg) -> App (L._Fc,[stg],Type.Set)
 
   let _Forall_St1 f = 
     Forall (Type.St, 
@@ -627,10 +635,14 @@ struct
 end
 
 module StateTransformer = struct
-  type t = (set expr -> set expr)
+  type t = (state expr -> set expr)
 
   let to_string _F = 
     let (stl,stg) = (fresh_stl(), fresh_stg ()) in
     let s = _F (Var (Ident.create stg, Type.Set)) in
       "λ("^stg^"). "^(Expr.to_string s)
+
+  let empty = fun _ -> Expr._SConst []
+  let (@<+>) _F1 _F2 = let open Expr in 
+    fun stg -> _F1(stg) @<+> _F2(stg)
 end
