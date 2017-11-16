@@ -238,22 +238,16 @@ let expr_to_pred env exp =
 
 let stabilize env rc (_F:F.t)= 
   let _ = printf "--- to stabilize: %s\n" @@ F.to_string _F in
-  (* Definition of P._F is given by _F *)
   let _Fc = env._Fc in
-  let _F_def = _Forall_St1 @@ fun (stg) -> 
-                  P._F(stg) @== _F(stg) in
-  let _Fc_def = _Forall_St1 @@ fun (stg) -> 
-                  P._Fc(stg) @== _Fc(stg) in
-  let phi' = ?&& [env.phi; _F_def; _Fc_def] in
   let _R = match rc with 
             | `Read -> _Rl
             | `Commit -> _Rc in
   let psi = _Forall_St3 @@ fun (stl,stg,stg') -> 
-    let ante = ?&& [stl @== P._Fc(stg) @<+> P._F(stg); 
+    let ante = ?&& [stl @== _Fc(stg) @<+> _F(stg); 
                     _R(stl,stg,stg')] in 
-    let conseq = P._F(stg) @== P._F(stg') in 
+    let conseq = _F(stg) @== _F(stg') in 
       ante @=> conseq in
-  let res = Z3E.check_validity (env.ke, env.te, phi') psi in
+  let res = Z3E.check_validity (env.ke, env.te, env.phi) psi in
   let _stable_F = match res with | UNSATISFIABLE -> _F
                     | _ ->fun _ ->  _SExists Type.St @@ 
                            (* Ignore the given Δ in favor of an
@@ -301,9 +295,8 @@ let rec doIt_letexp env (x,tye) (e1:expression) (e2:expression) : F.t =
               let _F2 = doIt_exp {env with te=te'; phi=phi'} e2 in
               (* λ(δ.Δ). exists(x', phi(x'), [x'/x] F2(δ,Δ))*)
               let _F_t(stg) = _SExists Type.Rec @@ 
-                                    fun x' -> (pred stg x', 
-                                               expr_subst (x',x) 
-                                                   @@ _F2(stg)) in
+                      fun x' -> (pred stg x', 
+                                 expr_subst (x',x) @@ _F2(stg)) in
               let ex_cond stg = _Exists_Rec1 @@ pred stg in
               let _F(stg) = SITE (ex_cond stg, 
                                       _F_t(stg), 

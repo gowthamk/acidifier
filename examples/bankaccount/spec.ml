@@ -70,7 +70,7 @@ let _G_s = Ident.create "G_s"
 let spec () =  
   let withdraw_spec = Txn {name="withdraw_txn"; 
                            guarantee=_G_w; 
-                           iso=Isolation.SI} in
+                           iso=Isolation.RC} in
   let deposit_spec = Txn {name="deposit_txn"; 
                            guarantee=_G_d; 
                            iso=Isolation.RC} in
