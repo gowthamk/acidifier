@@ -200,7 +200,9 @@ let new_bv ?sort () =
 
 let mk_set_eq (s1:z3_set) (s2:z3_set) : z3_expr = 
   let bv = new_bv () in
-  let body = (s1 bv) @<=> (s2 bv) in
+  let a = s1 bv in
+  let b = s2 bv in
+  let body = a @<=> b in
     expr_of_quantifier @@ mk_forall [bv.const] body
 
 let declare_enum_type (SomeType ty) (consts: Ident.t list) =
@@ -218,8 +220,8 @@ let declare_enum_type (SomeType ty) (consts: Ident.t list) =
           List.distinct_pairs tags in
   let s_univ_cstr = mk_and [s_min_cstr; s_max_cstr] in
   begin
-    Hashtbl.add tmap (SomeType ty) s;
-    List.iter2 (Hashtbl.add cmap) consts tags;
+    Hashtbl.replace tmap (SomeType ty) s;
+    List.iter2 (Hashtbl.replace cmap) consts tags;
     _assert s_univ_cstr;
     dprintf !_ddecls "%s added\n" tyname;
     bv_reset ();
@@ -233,9 +235,9 @@ let declare_variant_type (SomeType ty) (consts: Cons.t list) =
   let s_consts = List.map (fun f -> mk_app f []) @@
                       Datatype.get_constructors s_ty in
   begin
-    Hashtbl.add tmap (SomeType ty) s_ty;
+    Hashtbl.replace tmap (SomeType ty) s_ty;
     List.iter (fun (Cons.T {name},s_c) -> 
-                 Hashtbl.add cmap name s_c)
+                 Hashtbl.replace cmap name s_c)
       (List.zip consts s_consts);
     dprintf !_ddecls "%s added\n" (Type.to_string ty);
   end
@@ -246,9 +248,9 @@ let declare_extendible_type (SomeType ty) (consts: Ident.t list) =
                          mk_const_s (Ident.name c) sort) consts in
   let distinct_asn = mk_distinct s_consts in
     begin
-      Hashtbl.add tmap (SomeType ty) sort;
+      Hashtbl.replace tmap (SomeType ty) sort;
       List.iter (fun (c,s_c) -> 
-                   Hashtbl.add cmap (Ident.name c) s_c)
+                   Hashtbl.replace cmap (Ident.name c) s_c)
         (List.zip consts s_consts);
       _assert distinct_asn;
       dprintf !_ddecls "%s added\n" (Type.to_string ty);
@@ -256,9 +258,9 @@ let declare_extendible_type (SomeType ty) (consts: Ident.t list) =
 
 let declare_types (ke) =
   begin
-    Hashtbl.add tmap (SomeType Type.Int) (mk_int_sort ());
-    Hashtbl.add tmap (SomeType Type.Bool) (mk_bool_sort ());
-    Hashtbl.add tmap (SomeType Type.String) 
+    Hashtbl.replace tmap (SomeType Type.Int) (mk_int_sort ());
+    Hashtbl.replace tmap (SomeType Type.Bool) (mk_bool_sort ());
+    Hashtbl.replace tmap (SomeType Type.String) 
                               (mk_uninterpreted_s "Str");
     KE.iter (fun tyid kind -> 
                let tyname () = Type._of @@ Ident.name tyid in
@@ -270,7 +272,7 @@ let declare_types (ke) =
                    | Kind.Extendible consts ->
                        declare_extendible_type (tyname ()) !consts
                    | Kind.Uninterpreted ->
-                       Hashtbl.add tmap (tyname ()) 
+                       Hashtbl.replace tmap (tyname ()) 
                          (mk_uninterpreted_s @@ Ident.name tyid);
                    | _ -> ()) ke;
   end
@@ -278,7 +280,7 @@ let declare_types (ke) =
 let declare_const name typ = 
   let sort = sort_of_typ typ in
   let const_decl = mk_const_s name sort in
-    Hashtbl.add cmap name const_decl
+    Hashtbl.replace cmap name const_decl
 
 let declare_vars te = 
   let declare_fun: type a. string -> a Type.t -> unit = 
@@ -293,7 +295,7 @@ let declare_vars te =
         | _ -> failwith "Z3E.declare_vars: Impossible" in
       let func_decl = mk_func_decl_s name arg_sorts res_sort in
       let _ = dprintf !_ddecls "%s being added\n" name in
-        Hashtbl.add fmap name func_decl in
+        Hashtbl.replace fmap name func_decl in
     TE.iter (fun id (SomeType typ) -> let name = Ident.name id in 
                match typ with
                  | Type.Arrow _ -> declare_fun name typ
@@ -335,32 +337,33 @@ let rec doIt_st_expr: state spec_expr -> z3_set  = function
   | _ -> failwith "doIt_st_expr: Unexpected!"
 
 let rec doIt_set_expr: set spec_expr -> z3_set = fun e -> 
-  let _ =  dprintf !_dbv "~~ %s\n" @@ Speclang.Expr.to_string e in
+  (*let _ =  dprintf !_dbv "~~ %s\n" @@ Speclang.Expr.to_string e in*)
   let rec_sort = sort_of_typ @@ Type.Rec in
     match e with
     | Var (st,Type.St) -> doIt_st_expr e
-    | App (id,args,Type.Set) -> 
+    | App (id,args,Type.Set) -> fun bv ->
       let z3_id = fun_of_str @@ Ident.name id in
       let z3_args = List.map doIt_expr args in
-        fun bv -> mk_app z3_id @@ z3_args@[bv.const]
-    | App2 (id,args,Type.Set) -> 
+        mk_app z3_id @@ z3_args@[bv.const]
+    | App2 (id,args,Type.Set) -> fun bv ->
       let z3_id = fun_of_str @@ Ident.name id in
       let z3_args = List.map (fun (SomeExpr e) -> 
                                 doIt_expr e) args in
-        fun bv -> mk_app z3_id @@ z3_args@[bv.const]
-    | SConst recs -> 
+        mk_app z3_id @@ z3_args@[bv.const]
+    | SConst recs -> fun bv ->
       let consts = List.map doIt_expr recs in
-        fun bv -> mk_or @@  List.map (mk_eq bv.const) consts
+        mk_or @@  List.map (mk_eq bv.const) consts
     | SLit f -> fun bv ->
-      let _ = Hashtbl.add cmap bv.name bv.const in
-      let _ =  dprintf !_dbv "SLit: added %s\n" bv.name in
+      let _ = Hashtbl.replace cmap bv.name bv.const in
+      let _ = dprintf !_dbv "SLit: added %s :-> %s\n" bv.name 
+                (Expr.to_string @@ const_of_name bv.name)in
       let s_body = doIt_pred @@ f bv.id in
       let _ = Hashtbl.remove cmap bv.name in
-      let _ =  dprintf !_dbv "SLit: removed %s\n" bv.name in
+      let _ = dprintf !_dbv "SLit: removed %s\n" bv.name in
         s_body
     | SExists (ty, f) -> 
       let ex_bv = new_bv ~sort:(sort_of_typ ty) () in
-      let _ = Hashtbl.add cmap ex_bv.name ex_bv.const in
+      let _ = Hashtbl.replace cmap ex_bv.name ex_bv.const in
       let _ =  dprintf !_dbv "SExists: added %s\n" ex_bv.name in
       let (pred,set_expr) = f ex_bv.id in
       let phi = doIt_pred pred in 
@@ -369,31 +372,43 @@ let rec doIt_set_expr: set spec_expr -> z3_set = fun e ->
       let _ =  dprintf !_dbv "SExists: removed %s\n" ex_bv.name in
         fun bv -> expr_of_quantifier @@ 
           mk_exists [ex_bv.const] @@ mk_and [phi; s bv]
-    | SBind (e1, f) -> 
+    | SBind (e1, f) -> fun bv ->
       let s1 = doIt_set_expr e1 in
       let ex_bv = new_bv () in
-      let _ = Hashtbl.add cmap ex_bv.name ex_bv.const in
-      let _ =  dprintf !_dbv "SBind: added %s\n" ex_bv.name in
+      let _ = Hashtbl.replace cmap ex_bv.name ex_bv.const in
+      let _ =  dprintf !_dbv "SBind: added %s :-> %s\n" ex_bv.name 
+                (Expr.to_string @@ const_of_name ex_bv.name) in
       let e2 = f ex_bv.id in
       let s2 = doIt_set_expr e2 in
+      let pred = expr_of_quantifier @@
+                    mk_exists [ex_bv.const] @@ 
+                      mk_and [s1 ex_bv; s2 bv] in
       let _ = Hashtbl.remove cmap ex_bv.name in
-        fun bv -> expr_of_quantifier @@
-          mk_exists [ex_bv.const] @@ mk_and [s1 ex_bv; s2 bv]
-    | SITE (p,e1,e2) -> 
+      let _ =  dprintf !_dbv "SBind: removed %s\n" ex_bv.name in
+        pred
+    | SITE (p,e1,SConst []) -> fun bv ->
+      let varphi = doIt_pred p in
+      let s1 = doIt_set_expr e1 in
+        mk_and [varphi; s1 bv]
+    | SITE (p,SConst [],e2) -> fun bv ->
+      let varphi = doIt_pred p in
+      let s2 = doIt_set_expr e2 in
+        mk_and [mk_not varphi; s2 bv]
+    | SITE (p,e1,e2) -> fun bv ->
       let varphi = doIt_pred p in
       let s1 = doIt_set_expr e1 in
       let s2 = doIt_set_expr e2 in
-        fun bv -> mk_ite varphi (s1 bv) (s2 bv)
-    | SU (e1,e2) -> 
+        mk_ite varphi (s1 bv) (s2 bv)
+    | SU (e1,e2) -> fun bv ->
       let s1 = doIt_set_expr e1 in
       let s2 = doIt_set_expr e2 in
-        fun bv -> mk_or [s1 bv; s2 bv]
+        mk_or [s1 bv; s2 bv]
     | _ -> failwith @@ "doIt_set_expr: Unexpected "
                        ^(Speclang.Expr.to_string e)
 
 
 and doIt_pred (p:pred): z3_expr = 
-  let _ =  dprintf !_dbv "-- %s\n" @@ P.to_string p in
+  (*let _ =  dprintf !_dbv "-- %s\n" @@ P.to_string p in*)
   let f p = doIt_pred p in 
   let g e = doIt_expr e in
   let g_set = doIt_set_expr in
@@ -436,7 +451,7 @@ and doIt_pred (p:pred): z3_expr =
                        let bv_id = Ident.create bv_name in
                        let bv_const = mk_const_s bv_name sort in
                          (bv_name,bv_id,bv_const)) sorts in
-          let _ = List.iter2 (Hashtbl.add cmap) bv_names bv_consts in
+          let _ = List.iter2 (Hashtbl.replace cmap) bv_names bv_consts in
           let body = doIt_pred @@ body_fn bv_ids in
           let _ = List.iter (Hashtbl.remove cmap) bv_names in
             mk_forall bv_consts body
@@ -450,7 +465,7 @@ and doIt_pred (p:pred): z3_expr =
                        let bv_id = Ident.create bv_name in
                        let bv_const = mk_const_s bv_name sort in
                          (bv_name,bv_id,bv_const)) sorts in
-          let _ = List.iter2 (Hashtbl.add cmap) bv_names bv_consts in
+          let _ = List.iter2 (Hashtbl.replace cmap) bv_names bv_consts in
           let body = doIt_pred @@ body_fn bv_ids in
           let _ = List.iter (Hashtbl.remove cmap) bv_names in
             mk_exists bv_consts body
@@ -467,7 +482,7 @@ let assert_phi phi = match phi with
       _assert_all (*@@ List.concat *)
           @@ List.map (fun phi -> 
                         let ps = doIt_pred phi in 
-                          (bv_reset(); st_reset(); ps)) phis
+                        (bv_reset(); st_reset(); ps)) phis
   | _ -> _assert @@ doIt_pred phi
 
 (*
@@ -494,13 +509,13 @@ module Z3decode = struct
                              (Type.to_string typ); raise Not_found)
   let doIt_sorts ke model = 
   begin
-    Hashtbl.add tmodel (SomeType Type.Bool) [mk_true ();
+    Hashtbl.replace tmodel (SomeType Type.Bool) [mk_true ();
                                              mk_false ()];
     KE.iter (fun tyid kind -> 
       let SomeType typ = Type._of @@ Ident.name tyid in
       let sort = sort_of_typ typ in
       let univ = Model.sort_universe model sort in 
-        Hashtbl.add tmodel (SomeType typ) univ) ke;
+        Hashtbl.replace tmodel (SomeType typ) univ) ke;
   end
 
   let doIt_funs te model = 
@@ -549,7 +564,7 @@ end
  *)
 type res = Z3.Solver.status = 
   | UNSATISFIABLE | UNKNOWN | SATISFIABLE 
-let check_validity (ke,te,phi) psi =
+let check_validity (ke,te,phi) psi debug =
   let _ = if not (Log.open_ "z3.log") then
           failwith "Log couldn't be opened." in
   let vc_name = fresh_vc_name () in
@@ -564,7 +579,8 @@ let check_validity (ke,te,phi) psi =
     | P.Forall (Triple(St,St,St),f) -> f @@ List.map fst skolems
     | _ -> failwith "check_validity: Unimpl." in
   let phi' = let open P in match impl with 
-    | If (p1,p2) -> ?&& [phi; p1; Not p2]
+    | If (p1,p2) -> (*if debug then Not p2 
+                    else*) ?&& [phi; p1; Not p2]
     | _ -> failwith "check_validity: Unimpl." in
   let res = 
     begin
@@ -578,14 +594,14 @@ let check_validity (ke,te,phi) psi =
     end in
   let _ = match res with 
     | SATISFIABLE -> (printf "SAT\n";
-        Z3decode.doIt (ke,te) 
-            (from_just @@ Solver.get_model !solver))
+        (*Z3decode.doIt (ke,te) 
+            (from_just @@ Solver.get_model !solver)*))
     | UNSATISFIABLE -> printf "UNSAT\n"
     | UNKNOWN -> printf "UNKNOWN\n" in
     begin
       Printf.printf "Disposing...\n";
       reset_state ();
       Gc.full_major ();
-      (*failwith "Unimpl.";*)
+      (* failwith "Unimpl.";*)
       res
     end

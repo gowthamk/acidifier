@@ -239,15 +239,15 @@ let expr_to_pred env exp =
 let stabilize env rc (_F:F.t)= 
   let _ = printf "--- to stabilize: %s\n" @@ F.to_string _F in
   let _Fc = env._Fc in
-  let _R = match rc with 
-            | `Read -> _Rl
-            | `Commit -> _Rc in
+  let (d,_R) = match rc with 
+    | `Read -> (false,_Rl)
+    | `Commit -> (true,_Rc) in
   let psi = _Forall_St3 @@ fun (stl,stg,stg') -> 
-    let ante = ?&& [stl @== _Fc(stg) @<+> _F(stg); 
+    let ante = ?&& [stl @== _Fc(stg); 
                     _R(stl,stg,stg')] in 
     let conseq = _F(stg) @== _F(stg') in 
       ante @=> conseq in
-  let res = Z3E.check_validity (env.ke, env.te, env.phi) psi in
+  let res = Z3E.check_validity (env.ke, env.te, env.phi) psi d in
   let _stable_F = match res with | UNSATISFIABLE -> _F
                     | _ ->fun _ ->  _SExists Type.St @@ 
                            (* Ignore the given Δ in favor of an
@@ -271,38 +271,33 @@ let rec doIt_letexp env (x,tye) (e1:expression) (e2:expression) : F.t =
              Texp_function (arg_label,[case],_)) -> 
               let _ = printf "SQL.select1\n" in
               (* Predicate describing the record read. *)
-              let pred stg r = 
-                (* Δ satisfies I *)
-                let inv_pred = _I(stg) in
-                (* r belongs to Δ *)
-                let belongs_pred = SIn (r,stg) in
+              let phi r = 
                 (* r meets the search criterion... *)
                 let ([arg_id],body) = Astutils.extract_lambda case in
                 let env' = {env with ve = VE.add arg_id 
                                          (SomeExpr r) VE.empty} in 
-                let select_pred = expr_to_pred env' body in 
+                let where_pred = expr_to_pred env' body in 
                 (* ... and r belongs to table t *)
                 let t = Expr.table_name @@ String.lowercase_ascii @@ 
                           table_cons.cstr_name in
                 let table_pred = table(r) @== t in
-                  ?&& [inv_pred; belongs_pred; table_pred; select_pred] in
-              (* Analyze e2 assuming  x: { ν:Rec | ∃Δ. Φ(Δ,v)} *)
-              let te' = TE.add x (some Type.Rec) env.te in
-              let x_rec = Expr.record x in
-              let phi' = P.conj env.phi 
-                            (_Exists_St1 @@ fun stg -> pred stg x_rec) in
-              (* _Fc remains the same since δ remains the same *)
-              let _F2 = doIt_exp {env with te=te'; phi=phi'} e2 in
+                  ?&& [table_pred; where_pred] in
+              let bind_f r = SITE(phi(r), 
+                                  SConst [r],
+                                  SConst []) in
+              (* _F'(Δ) is the result of SELECT on Δ *)
+              let _F' = stabilize env `Read @@ 
+                          fun stg -> _SBind stg bind_f in
+              (* Let-bound x: Rec becomes global. Conservative w.r.t
+               * stability; sound nonetheless. *)
+              let _ = env.te <- TE.add x (some Type.Rec) env.te in
+              (* _Fc for e2 is same for e since δ hasn't been updated *)
+              let _F2 = doIt_exp env e2 in
               (* λ(δ.Δ). exists(x', phi(x'), [x'/x] F2(δ,Δ))*)
-              let _F_t(stg) = _SExists Type.Rec @@ 
-                      fun x' -> (pred stg x', 
-                                 expr_subst (x',x) @@ _F2(stg)) in
-              let ex_cond stg = _Exists_Rec1 @@ pred stg in
-              let _F(stg) = SITE (ex_cond stg, 
-                                      _F_t(stg), 
-                                      _SConst []) in
-              let stable_F = stabilize env `Read _F in
-                stable_F
+              let _F(stg) = SITE (record(x) @: _F'(stg),
+                                  _F2(stg), 
+                                  _SConst []) in
+                _F
           | (Texp_construct (_,{cstr_name="::"},args), _) ->
               failwith "doIt_valbind: SQL join Unimpl.\n"
           | _ -> failwith "doIt_valbind: SQL.select1 impossible case"
@@ -365,13 +360,14 @@ and doIt_exp env (exp:Typedtree.expression) =
                 let table_pred = table(r') @== table(r) in
                   ?&& [table_pred; upd_pred] in
               let bind_f r = SITE(phi(r), 
-                                  _SExists Type.Rec 
-                                    (fun r' -> (r' <~ r, 
-                                                _SConst [r'])),
-                                  _SConst []) in
+                                  _SLit (fun r' -> r' <~ r),
+                                  SConst []) in
               let _F(stg) = _SBind stg bind_f in
-              let stable_F = stabilize env `Read _F in
-                stable_F (* compile and see *)
+              (* _F must be checked stable under δ=_Fc'(Δ) *)
+              let _Fc' = let open F in env._Fc @<+> _F in
+              let stable_F = stabilize {env with _Fc = _Fc'} 
+                              `Read _F in
+                stable_F 
           | _ -> failwith "doIt_exp: SQL.update impossible case"
         end
     (* e1;e2 *)(* same as let _ = e1 in e2 *)
@@ -405,7 +401,8 @@ let doIt_txn env (Fun.T txn_fn) (Spec.Txn txn) =
                       env.te txn_fn.args_t in
   (* (Θ,Γ,Φ) |- txn_fn.body ⇒ F *)
   let _F = doIt_exp env txn_fn.body in
-  let _ = stabilize env `Commit _F in
+  (* δ = F(Δ) when committing *)
+  let _ = stabilize {env with _Fc = _F} `Commit _F in
   let _ = printf "Hello\n" in
 (*
   let _assert = _assert env in

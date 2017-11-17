@@ -22,14 +22,13 @@ let user_account = Var (Ident.create "user_account", Type.Table)
 let withdraw_G: state expr * state expr -> pred = fun (st,st') ->
   _Exists_Id1 @@ fun i -> 
     st' @== (st @>>= fun x -> 
-                      let t_set = _SExists Type.Rec @@ 
-                                    fun x' -> 
-                                      (?&& [id(x') @== id(x);
-                                            name(x') @== name(x);
-                                            sbal(x') @== sbal(x);
-                                            table(x') @== table(x);
-                                            cbal(x') @>= !! 0], 
-                                       _SConst [x']) in
+                      let t_set = _SLit @@ 
+                        fun x' -> 
+                            ?&& [id(x') @== id(x);
+                                  name(x') @== name(x);
+                                  sbal(x') @== sbal(x);
+                                  table(x') @== table(x);
+                                  cbal(x') @>= !! 0] in
                       let f_set = _SConst [x] in 
                         SITE (id(x) @== i, t_set, f_set))
 
