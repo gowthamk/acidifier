@@ -91,9 +91,6 @@ let fresh_sv () = Ident.create @@  fresh_sv_name ()
 let (fresh_const_name, const_reset) = gen_name "c" 
 let fresh_const () = Ident.create @@  fresh_const_name ()
 
-let (fresh_st_name, st_reset) = gen_name "st" 
-let fresh_st () = Ident.create @@  fresh_st_name ()
-
 let (fresh_vc_name,_) = gen_name "VC" 
 
 let reset_state () = 
@@ -103,7 +100,6 @@ let reset_state () =
     bv_reset ();
     sv_reset ();
     const_reset ();
-    st_reset ();
     Hashtbl.clear cmap;
     Hashtbl.clear tmap;
     Hashtbl.clear fmap;
@@ -445,9 +441,7 @@ and doIt_pred (p:pred): z3_expr =
           let sorts = sorts_of_typ ty in
           let (bv_names,bv_ids,bv_consts) = List.split3 @@
             List.map (fun sort -> 
-                       let bv_name = if sort = st_sort 
-                                     then fresh_st_name () 
-                                     else fresh_bv_name () in
+                       let bv_name = fresh_bv_name () in
                        let bv_id = Ident.create bv_name in
                        let bv_const = mk_const_s bv_name sort in
                          (bv_name,bv_id,bv_const)) sorts in
@@ -459,9 +453,7 @@ and doIt_pred (p:pred): z3_expr =
           let sorts = sorts_of_typ ty in
           let (bv_names,bv_ids,bv_consts) = List.split3 @@
             List.map (fun sort -> 
-                       let bv_name = if sort = st_sort 
-                                     then fresh_st_name () 
-                                     else fresh_bv_name () in
+                       let bv_name = fresh_bv_name () in
                        let bv_id = Ident.create bv_name in
                        let bv_const = mk_const_s bv_name sort in
                          (bv_name,bv_id,bv_const)) sorts in
@@ -482,7 +474,7 @@ let assert_phi phi = match phi with
       _assert_all (*@@ List.concat *)
           @@ List.map (fun phi -> 
                         let ps = doIt_pred phi in 
-                        (bv_reset(); st_reset(); ps)) phis
+                        (bv_reset(); ps)) phis
   | _ -> _assert @@ doIt_pred phi
 
 (*

@@ -54,6 +54,9 @@ let print_env env =
     printf "%s\n" @@ P.to_string env.phi;
   end
 
+let (fresh_stg_name, stg_reset) = gen_name "stg" 
+let fresh_stg () = Ident.create @@ fresh_stg_name ()
+
  let rec type_of_tye ke (tye : type_expr) : some_type= 
   let open Path in
   let ppf = Format.std_formatter in
@@ -248,11 +251,13 @@ let stabilize env rc (_F:F.t)=
     let conseq = _F(stg) @== _F(stg') in 
       ante @=> conseq in
   let res = Z3E.check_validity (env.ke, env.te, env.phi) psi d in
-  let _stable_F = match res with | UNSATISFIABLE -> _F
-                    | _ ->fun _ ->  _SExists Type.St @@ 
-                           (* Ignore the given Δ in favor of an
-                            * existentially quantified Δ' *)
-                            fun stg -> (_I(stg),_F(stg)) in
+  let _stable_F = match res with 
+    | UNSATISFIABLE -> _F 
+    | _ -> (* Ignore Δ in favor of a Skolem Δ'*)
+      let stg' = fresh_stg () in
+      let _ = env.te <- TE.add stg' (some Type.St) env.te in
+      let _ = env.phi <- ?&& [env.phi; _I(state_var stg')] in 
+        fun _ -> _F(state_var stg') in
     _stable_F
 
 (* Returns a stable F.t *)

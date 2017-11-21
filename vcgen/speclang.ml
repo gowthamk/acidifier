@@ -434,6 +434,7 @@ struct
   let table_name s = Var (Ident.create s, Type.Table)
   let record (x) = Var (x,Type.Rec) 
   let var (x,ty) = Var (x,ty)
+  let state_var x = Var (x,Type.St)
                    
 end
 
