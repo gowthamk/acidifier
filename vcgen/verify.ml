@@ -246,7 +246,8 @@ let stabilize env rc (_F:F.t)=
     | `Read -> (false,_Rl)
     | `Commit -> (true,_Rc) in
   let psi = _Forall_St3 @@ fun (stl,stg,stg') -> 
-    let ante = ?&& [stl @== _Fc(stg); 
+    let ante = ?&& [_I(stg); _I(stg'); (*I(Δ) ∧ I(Δ')*)
+                    stl @== _Fc(stg); 
                     _R(stl,stg,stg')] in 
     let conseq = _F(stg) @== _F(stg') in 
       ante @=> conseq in
@@ -290,16 +291,16 @@ let rec doIt_letexp env (x,tye) (e1:expression) (e2:expression) : F.t =
               let bind_f r = SITE(phi(r), 
                                   SConst [r],
                                   SConst []) in
-              (* _F'(Δ) is the result of SELECT on Δ *)
-              let _F' = stabilize env `Read @@ 
+              (* _F1(Δ) is the (stable) result of SELECT on Δ *)
+              let _F1 = stabilize env `Read @@ 
                           fun stg -> _SBind stg bind_f in
               (* Let-bound x: Rec becomes global. Conservative w.r.t
                * stability; sound nonetheless. *)
               let _ = env.te <- TE.add x (some Type.Rec) env.te in
               (* _Fc for e2 is same for e since δ hasn't been updated *)
               let _F2 = doIt_exp env e2 in
-              (* λ(δ.Δ). exists(x', phi(x'), [x'/x] F2(δ,Δ))*)
-              let _F(stg) = SITE (record(x) @: _F'(stg),
+              (* _F = λ(Δ).IF (x ∈ F1(Δ)) THEN F2(Δ) ELSE ∅ *)
+              let _F(stg) = SITE (record(x) @: _F1(stg),
                                   _F2(stg), 
                                   _SConst []) in
                 _F

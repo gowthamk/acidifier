@@ -435,6 +435,8 @@ struct
   let record (x) = Var (x,Type.Rec) 
   let var (x,ty) = Var (x,ty)
   let state_var x = Var (x,Type.St)
+  let (@+) x y = App2 (L.plus, [SomeExpr x; SomeExpr y], Type.Int)
+  let (@-) x y = App2 (L.minus, [SomeExpr x; SomeExpr y], Type.Int)
                    
 end
 
@@ -589,6 +591,13 @@ struct
     Exists (Type.Rec, 
             function [r] -> f (Expr.Var(r,Type.Rec))
                    | _ -> failwith "_Exists_Rec1: Unexpected")
+
+  let _Exists2: type a b. (a Type.t * b Type.t) -> 
+                          (a expr * b expr -> pred) -> pred = 
+    fun (a,b) f -> 
+      Exists(Type.Pair (a,b), 
+             function [x;y] -> f (Expr.Var (x,a), Expr.Var (y,b)) 
+                    | _ -> failwith "_Exists2: Unexpected")
 
 end
 

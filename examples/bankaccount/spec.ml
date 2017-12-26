@@ -20,7 +20,7 @@ let sbal (x) = App (L.get_accessor "sbal", [x], Type.Int)
 let user_account = Var (Ident.create "user_account", Type.Table)
 
 let withdraw_G: state expr * state expr -> pred = fun (st,st') ->
-  _Exists_Id1 @@ fun i -> 
+  _Exists2 (Type.Id,Type.Int) @@ fun (i,amt) -> 
     st' @== (st @>>= fun x -> 
                       let t_set = _SLit @@ 
                         fun x' -> 
@@ -28,9 +28,11 @@ let withdraw_G: state expr * state expr -> pred = fun (st,st') ->
                                   name(x') @== name(x);
                                   sbal(x') @== sbal(x);
                                   table(x') @== table(x);
-                                  cbal(x') @>= !! 0] in
+                                  cbal(x') @== (cbal(x) @- amt)] in
                       let f_set = _SConst [x] in 
-                        SITE (id(x) @== i, t_set, f_set))
+                        SITE (?&& [id(x) @== i; 
+                                   cbal(x) @>= amt], 
+                              t_set, f_set))
 
 let deposit_G (st,st') = st' @== st
 
